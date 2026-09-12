@@ -35,6 +35,9 @@ class App(tk.Tk):
         conn.pack(fill="x", padx=18, pady=5)
         self._field(conn, "Telegram Bot Token", "TELEGRAM_BOT_TOKEN", True)
         self._field(conn, "OpenAI API Key", "OPENAI_API_KEY", True)
+        self._field(conn, "Gemini API Key", "GEMINI_API_KEY", True)
+        self._field(conn, "Модель Gemini", "GEMINI_MODEL", False, "gemini-2.5-flash")
+        self._field(conn, "ИИ для ответов (openai/gemini)", "AI_PROVIDER", False, "gemini")
         self._field(conn, "ID Telegram-группы", "GROUP_CHAT_ID", False, "-3667294272")
         self._field(conn, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
         self._field(conn, "Модель OpenAI", "OPENAI_MODEL", False, "gpt-5.1-mini")
@@ -56,11 +59,6 @@ class App(tk.Tk):
         init.pack(fill="x", padx=18, pady=10)
         self.enabled = tk.BooleanVar(value=os.getenv("INITIATIVE_ENABLED", "true").lower() == "true")
         ttk.Checkbutton(init, text="Разрешить инициативные сообщения", variable=self.enabled).pack(anchor="w", padx=18, pady=8)
-        row = ttk.Frame(init)
-        row.pack(anchor="w", padx=18, pady=(0, 10))
-        ttk.Label(row, text="Постоянный интервал, минут:").pack(side="left")
-        self.interval = tk.StringVar(value=os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))
-        ttk.Entry(row, textvariable=self.interval, width=8).pack(side="left", padx=10)
 
         self.status = ttk.Label(self, text="● Бот остановлен")
         self.status.pack(anchor="w", padx=18, pady=5)
@@ -73,6 +71,7 @@ class App(tk.Tk):
         ttk.Button(buttons, text="Сохранить", command=self.save).pack(side="left", padx=5)
         ttk.Button(buttons, text="Проверить Telegram", command=self.check_telegram).pack(side="left", padx=5)
         ttk.Button(buttons, text="Проверить группу", command=self.check_group).pack(side="left", padx=5)
+        ttk.Button(buttons, text="Проверить Gemini", command=self.check_gemini).pack(side="left", padx=5)
 
         self.log = tk.Text(self, height=10, width=90, state="disabled")
         self.log.pack(fill="both", expand=True, padx=18, pady=(0, 12))
@@ -85,14 +84,8 @@ class App(tk.Tk):
         self.log.configure(state="disabled")
 
     def save(self, quiet=False):
-        try:
-            interval = max(1, int(self.interval.get().strip() or "60"))
-            self.interval.set(str(interval))
-        except ValueError:
-            raise ValueError("Интервал должен быть целым числом минут.")
         values = {key: var.get().strip() for key, var in self.fields.items()}
         values["INITIATIVE_ENABLED"] = "true" if self.enabled.get() else "false"
-        values["INITIATIVE_INTERVAL_MINUTES"] = self.interval.get()
         values["KNOWLEDGE_REFRESH_MINUTES"] = "10"
         values["SYSTEM_PROMPT"] = self.system_prompt.get("1.0", "end-1c")
         values["INITIATIVE_PROMPT"] = self.initiative_prompt.get("1.0", "end-1c")
@@ -159,6 +152,23 @@ class App(tk.Tk):
             self.write(f"✗ Группа: {e}")
             messagebox.showerror("Telegram-группа — ошибка", "Группа не найдена. Проверьте ID и убедитесь, что бот добавлен в группу.\n\n" + str(e))
 
+
+    def check_gemini(self):
+        try:
+            self.save(quiet=True)
+            from google import genai
+            key = self.fields["GEMINI_API_KEY"].get().strip()
+            if not key:
+                raise ValueError("Gemini API Key не указан.")
+            client = genai.Client(api_key=key)
+            model = self.fields["GEMINI_MODEL"].get().strip() or "gemini-2.5-flash"
+            response = client.models.generate_content(model=model, contents="Ответь одним словом: OK")
+            result = (response.text or "").strip()
+            self.write(f"✓ Gemini OK: {model}")
+            messagebox.showinfo("Gemini", f"Gemini подключён.\nМодель: {model}\nОтвет API: {result}")
+        except Exception as e:
+            self.write(f"✗ Gemini: {e}")
+            messagebox.showerror("Gemini — ошибка", str(e))
 
     def start(self):
         if self.running:
