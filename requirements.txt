@@ -1,0 +1,5 @@
+aiogram>=3.22,<4
+openai>=1.100,<2
+python-dotenv>=1.1,<2
+PyYAML>=6.0,<7
+APScheduler>=3.11,<4
