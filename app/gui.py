@@ -1,0 +1,139 @@
+import asyncio
+import os
+import threading
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+from .config import save_local_settings, ENV_PATH, APP_DATA
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Instinct Bot 3.0")
+        self.geometry("760x650")
+        self.minsize(760, 650)
+        self.bot_thread = None
+        self.running = False
+        self.fields = {}
+        self._build()
+
+    def _field(self, parent, label, key, secret=False, default=""):
+        ttk.Label(parent, text=label).pack(anchor="w", padx=18, pady=(7, 2))
+        var = tk.StringVar(value=os.getenv(key, default))
+        self.fields[key] = var
+        ttk.Entry(parent, textvariable=var, show="*" if secret else "").pack(fill="x", padx=18)
+
+    def _build(self):
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        ttk.Label(self, text="INSTINCT BOT 3.0", font=("Segoe UI", 20, "bold")).pack(pady=(16, 3))
+        ttk.Label(self, text="Telegram + OpenAI + Google Docs").pack(pady=(0, 12))
+
+        conn = ttk.LabelFrame(self, text="Подключения")
+        conn.pack(fill="x", padx=18, pady=5)
+        self._field(conn, "Telegram Bot Token", "TELEGRAM_BOT_TOKEN", True)
+        self._field(conn, "OpenAI API Key", "OPENAI_API_KEY", True)
+        self._field(conn, "ID Telegram-группы", "GROUP_CHAT_ID", False, "-3667294272")
+        self._field(conn, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
+        self._field(conn, "Модель OpenAI", "OPENAI_MODEL", False, "gpt-5.1-mini")
+
+        init = ttk.LabelFrame(self, text="Инициативный диалог")
+        init.pack(fill="x", padx=18, pady=10)
+        self.enabled = tk.BooleanVar(value=os.getenv("INITIATIVE_ENABLED", "true").lower() == "true")
+        ttk.Checkbutton(init, text="Разрешить инициативные сообщения", variable=self.enabled).pack(anchor="w", padx=18, pady=8)
+        row = ttk.Frame(init)
+        row.pack(anchor="w", padx=18, pady=(0, 10))
+        ttk.Label(row, text="Постоянный интервал, минут:").pack(side="left")
+        self.interval = tk.StringVar(value=os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))
+        ttk.Entry(row, textvariable=self.interval, width=8).pack(side="left", padx=10)
+
+        status_box = ttk.Frame(self)
+        status_box.pack(fill="x", padx=18)
+        self.status = ttk.Label(status_box, text="● Бот остановлен")
+        self.status.pack(side="left")
+
+        buttons = ttk.Frame(self)
+        buttons.pack(pady=12)
+        ttk.Button(buttons, text="▶ Запустить", command=self.start).pack(side="left", padx=5)
+        ttk.Button(buttons, text="■ Остановить", command=self.stop).pack(side="left", padx=5)
+        ttk.Button(buttons, text="↻ Обновить Google Docs", command=self.refresh).pack(side="left", padx=5)
+        ttk.Button(buttons, text="Сохранить", command=self.save).pack(side="left", padx=5)
+
+        self.log = tk.Text(self, height=10, width=90, state="disabled")
+        self.log.pack(fill="both", expand=True, padx=18, pady=(0, 12))
+        self.write(f"Локальные настройки: {ENV_PATH}")
+
+    def write(self, text):
+        self.log.configure(state="normal")
+        self.log.insert("end", text + "\n")
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
+    def save(self, quiet=False):
+        try:
+            interval = max(1, int(self.interval.get().strip() or "60"))
+            self.interval.set(str(interval))
+        except ValueError:
+            raise ValueError("Интервал должен быть целым числом минут.")
+        values = {key: var.get().strip() for key, var in self.fields.items()}
+        values["INITIATIVE_ENABLED"] = "true" if self.enabled.get() else "false"
+        values["INITIATIVE_INTERVAL_MINUTES"] = self.interval.get()
+        values["KNOWLEDGE_REFRESH_MINUTES"] = "10"
+        save_local_settings(values)
+        self.write("✓ Настройки сохранены локально.")
+        if not quiet:
+            messagebox.showinfo("Instinct Bot", "Настройки сохранены.")
+
+    def refresh(self):
+        try:
+            self.save(quiet=True)
+            from .knowledge import refresh_google_doc
+            url = self.fields["GOOGLE_DOCS_URL"].get().strip()
+            if not url:
+                self.write("⚠ Ссылка Google Docs не указана.")
+                return
+            ok = refresh_google_doc(url)
+            self.write("✓ Google Docs загружен в локальный кэш." if ok else "✗ Google Docs не загрузился. Проверьте доступ «Все, у кого есть ссылка — Читатель».")
+        except Exception as e:
+            self.write(f"✗ Ошибка базы знаний: {e}")
+
+    def start(self):
+        if self.running:
+            self.write("Бот уже запущен.")
+            return
+        try:
+            self.save(quiet=True)
+            self.refresh()
+            self.running = True
+            self.status.configure(text="● Бот запускается...")
+            self.write("Запускаю Telegram polling...")
+            self.bot_thread = threading.Thread(target=self._run_bot, daemon=True)
+            self.bot_thread.start()
+        except Exception as e:
+            self.running = False
+            self.status.configure(text="● Ошибка")
+            messagebox.showerror("Ошибка", str(e))
+
+    def _run_bot(self):
+        try:
+            from .main import main
+            asyncio.run(main())
+            self.after(0, lambda: self.status.configure(text="● Бот остановлен"))
+        except Exception as e:
+            self.after(0, lambda: self.write(f"✗ Ошибка бота: {e}"))
+            self.after(0, lambda: self.status.configure(text="● Ошибка"))
+        finally:
+            self.running = False
+
+    def stop(self):
+        if not self.running:
+            return
+        self.write("Для полной остановки закройте окно программы.")
+        self.status.configure(text="● Бот работает (остановка — закрыть программу)")
+
+if __name__ == "__main__":
+    App().mainloop()
