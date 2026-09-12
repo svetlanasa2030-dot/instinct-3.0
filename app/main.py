@@ -26,19 +26,19 @@ async def on_message(message: Message):
     text = (message.text or "").strip()
     if not text:
         return
+    # Не обрабатываем собственные сообщения бота.
+    me = await bot.me()
+    if message.from_user and me and message.from_user.id == me.id:
+        return
+
     username = message.from_user.username if message.from_user else None
     user_id = message.from_user.id if message.from_user else None
     storage.add(message.chat.id, user_id, username, "user", text)
 
-    me = await bot.me()
-    should_answer = bool(message.reply_to_message) or (bool(me) and f"@{me.username}" in text)
-    if not should_answer and text.endswith("?"):
-        should_answer = True
-    if not should_answer:
-        return
-
+    # Бот читает каждое сообщение группы и перед ответом сам решает
+    # по основному промту, есть ли повод вступить в разговор.
     try:
-        answer = await ai.answer(message.chat.id, text)
+        answer = await ai.decide_and_answer(message.chat.id, text)
         if answer:
             await message.answer(answer, reply_to_message_id=message.message_id)
             storage.add(message.chat.id, None, None, "assistant", answer)
