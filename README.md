@@ -1,0 +1,32 @@
+# Instinct 3.0 — GPT Telegram Group Bot
+
+Бот для общения в Telegram-группе через OpenAI API.
+
+## Возможности
+
+- отвечает на вопросы участников группы;
+- использует локальную базу знаний из `knowledge/`;
+- поддерживает системный промт в `config/prompts.yaml`;
+- хранит контекст диалога в SQLite;
+- умеет самостоятельно инициировать сообщения по расписанию;
+- сообщения и ответы можно настраивать без изменения кода.
+
+## Переменные окружения
+
+Создайте `.env` по примеру `.env.example`:
+
+- `TELEGRAM_BOT_TOKEN`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL` (по умолчанию `gpt-5.1-mini`)
+- `GROUP_CHAT_ID` — ID группы, где бот работает
+- `INITIATIVE_ENABLED` — `true/false`
+- `INITIATIVE_INTERVAL_MINUTES` — интервал инициативных сообщений
+
+## Запуск
+
+```bash
+pip install -r requirements.txt
+python -m app.main
+```
+
+Для Telegram бот должен быть добавлен в группу. Если используются ответы на все сообщения, отключите privacy mode у бота через BotFather.
