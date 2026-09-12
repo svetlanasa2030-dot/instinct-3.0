@@ -5,10 +5,10 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from .ai import AIEngine
-from .config import load_settings
-from .storage import Storage
-from .knowledge_ui import router as knowledge_router
+from app.ai import AIEngine
+from app.config import load_settings
+from app.storage import Storage
+from app.knowledge_ui import router as knowledge_router
 
 logging.basicConfig(level=logging.INFO)
 
