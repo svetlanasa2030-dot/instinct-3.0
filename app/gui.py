@@ -39,6 +39,19 @@ class App(tk.Tk):
         self._field(conn, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
         self._field(conn, "Модель OpenAI", "OPENAI_MODEL", False, "gpt-5.1-mini")
 
+        prompts = ttk.LabelFrame(self, text="Промты")
+        prompts.pack(fill="both", expand=False, padx=18, pady=10)
+
+        ttk.Label(prompts, text="Основной промт — правила общения бота:").pack(anchor="w", padx=12, pady=(8, 3))
+        self.system_prompt = tk.Text(prompts, height=7, wrap="word")
+        self.system_prompt.pack(fill="x", padx=12, pady=(0, 8))
+        self.system_prompt.insert("1.0", os.getenv("SYSTEM_PROMPT", ""))
+
+        ttk.Label(prompts, text="Промт инициативы — правила самостоятельных сообщений:").pack(anchor="w", padx=12, pady=(2, 3))
+        self.initiative_prompt = tk.Text(prompts, height=5, wrap="word")
+        self.initiative_prompt.pack(fill="x", padx=12, pady=(0, 10))
+        self.initiative_prompt.insert("1.0", os.getenv("INITIATIVE_PROMPT", ""))
+
         init = ttk.LabelFrame(self, text="Инициативный диалог")
         init.pack(fill="x", padx=18, pady=10)
         self.enabled = tk.BooleanVar(value=os.getenv("INITIATIVE_ENABLED", "true").lower() == "true")
