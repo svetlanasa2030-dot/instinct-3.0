@@ -1,10 +1,12 @@
 import asyncio
 import os
 import threading
+import sys
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from .config import save_local_settings, ENV_PATH, APP_DATA
+if getattr(sys, "frozen", False):\n    ROOT = Path(sys._MEIPASS)\nelse:\n    ROOT = Path(__file__).resolve().parent.parent\nif str(ROOT) not in sys.path:\n    sys.path.insert(0, str(ROOT))\n\nfrom app.config import save_local_settings, ENV_PATH, APP_DATA
 
 class App(tk.Tk):
     def __init__(self):
@@ -91,7 +93,7 @@ class App(tk.Tk):
     def refresh(self):
         try:
             self.save(quiet=True)
-            from .knowledge import refresh_google_doc
+            from app.knowledge import refresh_google_doc
             url = self.fields["GOOGLE_DOCS_URL"].get().strip()
             if not url:
                 self.write("⚠ Ссылка Google Docs не указана.")
@@ -120,7 +122,7 @@ class App(tk.Tk):
 
     def _run_bot(self):
         try:
-            from .main import main
+            from app.main import main
             asyncio.run(main())
             self.after(0, lambda: self.status.configure(text="● Бот остановлен"))
         except Exception as e:
