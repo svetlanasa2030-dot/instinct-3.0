@@ -10,7 +10,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Instinct Bot 3.0")
-        self.geometry("760x650")
+        self.geometry("820x900")
         self.resizable(False, False)
         self.running = False
         self.fields = {}
@@ -80,6 +80,8 @@ class App(tk.Tk):
         values["INITIATIVE_ENABLED"] = "true" if self.enabled.get() else "false"
         values["INITIATIVE_INTERVAL_MINUTES"] = self.interval.get()
         values["KNOWLEDGE_REFRESH_MINUTES"] = "10"
+        values["SYSTEM_PROMPT"] = self.system_prompt.get("1.0", "end-1c")
+        values["INITIATIVE_PROMPT"] = self.initiative_prompt.get("1.0", "end-1c")
         save_local_settings(values)
         self.write("✓ Настройки сохранены локально.")
         if not quiet:
