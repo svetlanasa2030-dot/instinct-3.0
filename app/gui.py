@@ -1,20 +1,17 @@
 import asyncio
 import os
 import threading
-import sys
-from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-if getattr(sys, "frozen", False):\n    ROOT = Path(sys._MEIPASS)\nelse:\n    ROOT = Path(__file__).resolve().parent.parent\nif str(ROOT) not in sys.path:\n    sys.path.insert(0, str(ROOT))\n\nfrom app.config import save_local_settings, ENV_PATH, APP_DATA
+from .config import save_local_settings, ENV_PATH
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Instinct Bot 3.0")
         self.geometry("760x650")
-        self.minsize(760, 650)
-        self.bot_thread = None
+        self.resizable(False, False)
         self.running = False
         self.fields = {}
         self._build()
@@ -31,7 +28,6 @@ class App(tk.Tk):
             style.theme_use("clam")
         except tk.TclError:
             pass
-
         ttk.Label(self, text="INSTINCT BOT 3.0", font=("Segoe UI", 20, "bold")).pack(pady=(16, 3))
         ttk.Label(self, text="Telegram + OpenAI + Google Docs").pack(pady=(0, 12))
 
@@ -53,13 +49,11 @@ class App(tk.Tk):
         self.interval = tk.StringVar(value=os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))
         ttk.Entry(row, textvariable=self.interval, width=8).pack(side="left", padx=10)
 
-        status_box = ttk.Frame(self)
-        status_box.pack(fill="x", padx=18)
-        self.status = ttk.Label(status_box, text="● Бот остановлен")
-        self.status.pack(side="left")
+        self.status = ttk.Label(self, text="● Бот остановлен")
+        self.status.pack(anchor="w", padx=18, pady=5)
 
         buttons = ttk.Frame(self)
-        buttons.pack(pady=12)
+        buttons.pack(pady=10)
         ttk.Button(buttons, text="▶ Запустить", command=self.start).pack(side="left", padx=5)
         ttk.Button(buttons, text="■ Остановить", command=self.stop).pack(side="left", padx=5)
         ttk.Button(buttons, text="↻ Обновить Google Docs", command=self.refresh).pack(side="left", padx=5)
@@ -67,11 +61,11 @@ class App(tk.Tk):
 
         self.log = tk.Text(self, height=10, width=90, state="disabled")
         self.log.pack(fill="both", expand=True, padx=18, pady=(0, 12))
-        self.write(f"Локальные настройки: {ENV_PATH}")
+        self.write(f"Настройки хранятся локально: {ENV_PATH}")
 
-    def write(self, text):
+    def write(self, msg):
         self.log.configure(state="normal")
-        self.log.insert("end", text + "\n")
+        self.log.insert("end", msg + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
 
@@ -93,13 +87,13 @@ class App(tk.Tk):
     def refresh(self):
         try:
             self.save(quiet=True)
-            from app.knowledge import refresh_google_doc
+            from .knowledge import refresh_google_doc
             url = self.fields["GOOGLE_DOCS_URL"].get().strip()
             if not url:
                 self.write("⚠ Ссылка Google Docs не указана.")
                 return
             ok = refresh_google_doc(url)
-            self.write("✓ Google Docs загружен в локальный кэш." if ok else "✗ Google Docs не загрузился. Проверьте доступ «Все, у кого есть ссылка — Читатель».")
+            self.write("✓ Google Docs загружен." if ok else "✗ Не удалось загрузить Google Docs. Проверьте доступ по ссылке.")
         except Exception as e:
             self.write(f"✗ Ошибка базы знаний: {e}")
 
@@ -112,9 +106,7 @@ class App(tk.Tk):
             self.refresh()
             self.running = True
             self.status.configure(text="● Бот запускается...")
-            self.write("Запускаю Telegram polling...")
-            self.bot_thread = threading.Thread(target=self._run_bot, daemon=True)
-            self.bot_thread.start()
+            threading.Thread(target=self._run_bot, daemon=True).start()
         except Exception as e:
             self.running = False
             self.status.configure(text="● Ошибка")
@@ -122,9 +114,8 @@ class App(tk.Tk):
 
     def _run_bot(self):
         try:
-            from app.main import main
+            from .main import main
             asyncio.run(main())
-            self.after(0, lambda: self.status.configure(text="● Бот остановлен"))
         except Exception as e:
             self.after(0, lambda: self.write(f"✗ Ошибка бота: {e}"))
             self.after(0, lambda: self.status.configure(text="● Ошибка"))
@@ -132,10 +123,8 @@ class App(tk.Tk):
             self.running = False
 
     def stop(self):
-        if not self.running:
-            return
-        self.write("Для полной остановки закройте окно программы.")
-        self.status.configure(text="● Бот работает (остановка — закрыть программу)")
+        self.write("Для полной остановки закройте программу.")
+        self.status.configure(text="● Бот работает (остановка — закрыть окно)")
 
 if __name__ == "__main__":
     App().mainloop()
