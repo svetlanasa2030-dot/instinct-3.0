@@ -8,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .ai import AIEngine
 from .config import load_settings
 from .storage import Storage
+from .knowledge_ui import router as knowledge_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -16,6 +17,7 @@ storage = Storage(settings.db_path)
 ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
 bot = Bot(settings.telegram_token)
 dp = Dispatcher()
+dp.include_router(knowledge_router)
 
 @dp.message(F.text)
 async def on_message(message: Message):
@@ -28,8 +30,8 @@ async def on_message(message: Message):
     user_id = message.from_user.id if message.from_user else None
     storage.add(message.chat.id, user_id, username, "user", text)
 
-    # Reply to direct mentions/replies/questions; otherwise let the model decide if useful.
-    should_answer = bool(message.reply_to_message) or f"@{(await bot.me()).username}" in text if await bot.me() else False
+    me = await bot.me()
+    should_answer = bool(message.reply_to_message) or (bool(me) and f"@{me.username}" in text)
     if not should_answer and text.endswith("?"):
         should_answer = True
     if not should_answer:
@@ -57,13 +59,7 @@ async def send_initiative():
 async def main():
     scheduler = AsyncIOScheduler()
     if settings.initiative_enabled:
-        scheduler.add_job(
-            send_initiative,
-            "interval",
-            minutes=settings.initiative_interval_minutes,
-            id="group_initiative",
-            replace_existing=True,
-        )
+        scheduler.add_job(send_initiative, "interval", minutes=settings.initiative_interval_minutes, id="group_initiative", replace_existing=True)
         scheduler.start()
     await dp.start_polling(bot)
 
