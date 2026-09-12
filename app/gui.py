@@ -58,6 +58,7 @@ class App(tk.Tk):
         ttk.Button(buttons, text="■ Остановить", command=self.stop).pack(side="left", padx=5)
         ttk.Button(buttons, text="↻ Обновить Google Docs", command=self.refresh).pack(side="left", padx=5)
         ttk.Button(buttons, text="Сохранить", command=self.save).pack(side="left", padx=5)
+        ttk.Button(buttons, text="Проверить Telegram", command=self.check_telegram).pack(side="left", padx=5)
 
         self.log = tk.Text(self, height=10, width=90, state="disabled")
         self.log.pack(fill="both", expand=True, padx=18, pady=(0, 12))
@@ -96,6 +97,30 @@ class App(tk.Tk):
             self.write("✓ Google Docs загружен." if ok else "✗ Не удалось загрузить Google Docs. Проверьте доступ по ссылке.")
         except Exception as e:
             self.write(f"✗ Ошибка базы знаний: {e}")
+
+
+    def check_telegram(self):
+        try:
+            self.save(quiet=True)
+            from aiogram import Bot
+            from .config import load_settings
+
+            async def check():
+                settings = load_settings()
+                bot = Bot(settings.telegram_token)
+                try:
+                    me = await bot.get_me()
+                    chat = await bot.get_chat(settings.group_chat_id)
+                    return me.username or me.first_name, chat.title or str(chat.id)
+                finally:
+                    await bot.session.close()
+
+            bot_name, chat_name = asyncio.run(check())
+            self.write(f"✓ Telegram OK: @{bot_name}; группа: {chat_name}")
+            messagebox.showinfo("Telegram", f"Бот подключён: @{bot_name}\nГруппа найдена: {chat_name}")
+        except Exception as e:
+            self.write(f"✗ Telegram: {e}")
+            messagebox.showerror("Telegram — ошибка", str(e))
 
     def start(self):
         if self.running:
