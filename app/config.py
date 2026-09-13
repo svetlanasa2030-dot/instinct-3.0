@@ -11,11 +11,15 @@ APP_DATA.mkdir(parents=True, exist_ok=True)
 ENV_PATH = APP_DATA / ".env"
 load_dotenv(ENV_PATH, override=True)
 
+
 @dataclass(frozen=True)
 class Settings:
     telegram_token: str
     openai_key: str
     openai_model: str
+    gemini_key: str
+    gemini_model: str
+    ai_provider: str
     group_chat_id: int
     initiative_enabled: bool
     initiative_interval_minutes: int
@@ -24,6 +28,7 @@ class Settings:
     initiative_prompt: str
     google_docs_url: str
     knowledge_refresh_minutes: int
+
 
 def load_settings() -> Settings:
     prompt_path = ROOT / "config" / "prompts.yaml"
@@ -38,6 +43,9 @@ def load_settings() -> Settings:
         telegram_token=token,
         openai_key=api_key,
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5.1-mini"),
+        gemini_key=os.getenv("GEMINI_API_KEY", "").strip(),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
+        ai_provider=os.getenv("AI_PROVIDER", "openai").strip().lower() or "openai",
         group_chat_id=int(group_id),
         initiative_enabled=os.getenv("INITIATIVE_ENABLED", "false").lower() == "true",
         initiative_interval_minutes=max(1, int(os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))),
@@ -48,7 +56,8 @@ def load_settings() -> Settings:
         knowledge_refresh_minutes=max(1, int(os.getenv("KNOWLEDGE_REFRESH_MINUTES", "10"))),
     )
 
+
 def save_local_settings(values: dict) -> None:
-    lines = [f"{k}={str(v).replace(chr(10), ' ').replace(chr(13), ' ')}" for k,v in values.items()]
+    lines = [f"{k}={str(v).replace(chr(10), ' ').replace(chr(13), ' ')}" for k, v in values.items()]
     ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     load_dotenv(ENV_PATH, override=True)
