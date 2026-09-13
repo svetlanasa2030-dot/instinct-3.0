@@ -14,15 +14,7 @@ logging.basicConfig(level=logging.INFO)
 
 settings = load_settings()
 storage = Storage(settings.db_path)
-ai = AIEngine(
-    settings.openai_key,
-    settings.openai_model,
-    settings.system_prompt,
-    storage,
-    provider=settings.ai_provider,
-    gemini_key=settings.gemini_key,
-    gemini_model=settings.gemini_model,
-)
+ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
 bot = Bot(settings.telegram_token)
 dp = Dispatcher()
 dp.include_router(knowledge_router)
@@ -52,7 +44,7 @@ async def on_message(message: Message):
             storage.add(message.chat.id, None, None, "assistant", answer)
     except Exception as exc:
         logging.exception("Failed to generate answer")
-        logging.error("AI provider=%s model=%s error=%s", ai.provider, ai.gemini_model if ai.provider == "gemini" else ai.openai_model, exc)
+        logging.error("AI provider=%s model=%s error=%s", ai.provider, ai.model, exc)
 
 async def send_initiative():
     if not settings.initiative_enabled:
