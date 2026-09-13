@@ -20,9 +20,6 @@ class Settings:
     telegram_token: str
     openai_key: str
     openai_model: str
-    gemini_key: str
-    gemini_model: str
-    ai_provider: str
     group_chat_id: int
     initiative_enabled: bool
     initiative_interval_minutes: int
@@ -46,9 +43,6 @@ def load_settings() -> Settings:
         telegram_token=token,
         openai_key=api_key,
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
-        gemini_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
-        ai_provider=os.getenv("AI_PROVIDER", "openai").strip().lower() or "openai",
         group_chat_id=int(group_id),
         initiative_enabled=os.getenv("INITIATIVE_ENABLED", "false").lower() == "true",
         initiative_interval_minutes=max(1, int(os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))),
