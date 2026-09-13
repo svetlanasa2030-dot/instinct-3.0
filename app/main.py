@@ -21,7 +21,9 @@ dp.include_router(knowledge_router)
 
 @dp.message(F.text)
 async def on_message(message: Message):
+    logging.info("Telegram message received: chat_id=%s from=%s text=%r", message.chat.id, message.from_user.id if message.from_user else None, message.text)
     if message.chat.id != settings.group_chat_id:
+        logging.warning("Ignored message from unexpected chat: %s (expected %s)", message.chat.id, settings.group_chat_id)
         return
     text = (message.text or "").strip()
     if not text:
@@ -44,7 +46,7 @@ async def on_message(message: Message):
             storage.add(message.chat.id, None, None, "assistant", answer)
     except Exception as exc:
         logging.exception("Failed to generate answer")
-        logging.error("AI provider=%s model=%s error=%s", ai.provider, ai.model, exc)
+        logging.error("OpenAI model=%s error=%s", ai.model, exc)
 
 async def send_initiative():
     if not settings.initiative_enabled:
@@ -58,6 +60,8 @@ async def send_initiative():
         logging.exception("Failed to send initiative message")
 
 async def main():
+    me = await bot.get_me()
+    logging.info("Telegram bot started: @%s id=%s privacy_all_messages=%s", me.username, me.id, me.can_read_all_group_messages)
     scheduler = AsyncIOScheduler()
     if settings.initiative_enabled:
         scheduler.add_job(send_initiative, "interval", minutes=settings.initiative_interval_minutes, id="group_initiative", replace_existing=True)
