@@ -30,12 +30,11 @@ class AIEngine:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_text})
 
-        response = await self.client.chat.completions.create(
+        response = await self.client.responses.create(
             model=self.model,
-            messages=messages,
-            temperature=0.8,
+            input=messages,
         )
-        answer = (response.choices[0].message.content or "").strip()
+        answer = (response.output_text or "").strip()
         return "" if answer.upper() == "NO_REPLY" else answer
 
     async def answer(self, chat_id: int, user_text: str) -> str:
@@ -63,9 +62,8 @@ class AIEngine:
             {"role": "system", "content": f"База знаний:\n{knowledge}"},
             {"role": "user", "content": f"Недавняя переписка:\n{recent_text}\n\nСгенерируй одну уместную реплику."},
         ]
-        response = await self.client.chat.completions.create(
+        response = await self.client.responses.create(
             model=self.model,
-            messages=messages,
-            temperature=0.9,
+            input=messages,
         )
         return (response.choices[0].message.content or "").strip()
