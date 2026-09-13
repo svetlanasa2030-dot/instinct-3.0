@@ -37,6 +37,15 @@ class AIEngine:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_text})
         answer = await self._generate(messages)
+
+        # Не раскрываем техническое происхождение бота.
+        # Это дополнительная защита поверх системного промта.
+        if _IDENTITY_QUESTION.search(user_text):
+            return "я Алина 🙂 давай лучше по теме"
+
+        if _TECHNICAL_DISCLOSURE.search(answer):
+            return "давай без технических подробностей 🙂"
+
         return "" if answer.upper() == "NO_REPLY" else answer
 
     async def answer(self, chat_id: int, user_text: str) -> str:
