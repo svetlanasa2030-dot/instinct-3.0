@@ -60,7 +60,7 @@ class App(tk.Tk):
         left = ttk.Frame(header)
         left.pack(side="left")
         ttk.Label(left, text="INSTINCT BOT 3.0", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(left, text="Telegram + OpenAI + Gemini + Google Docs", style="Subtitle.TLabel").pack(anchor="w")
+        ttk.Label(left, text="Telegram + OpenAI + Google Docs", style="Subtitle.TLabel").pack(anchor="w")
         ttk.Button(header, text="⚙ Настройки", command=self.focus_settings).pack(side="right", ipadx=8, ipady=3)
 
         conn = self._section(self, "Подключения и статус")
@@ -69,7 +69,6 @@ class App(tk.Tk):
         self._connection_card(cards, "telegram", "Telegram Bot", "Бот не проверен", self.check_telegram, "✈")
         self._connection_card(cards, "group", "Telegram-группа", "ID не проверен", self.check_group, "👥")
         self._connection_card(cards, "openai", "OpenAI", "Модель не проверена", self.check_openai, "◉")
-        self._connection_card(cards, "gemini", "Gemini", "Модель не проверена", self.check_gemini, "✦")
         self._connection_card(cards, "google", "Google Docs", "База знаний не проверена", self.check_google_docs, "◆")
 
         control = self._section(self, "Управление ботом")
@@ -92,11 +91,8 @@ class App(tk.Tk):
         right.pack(side="left", fill="both", expand=True, padx=(8, 0))
         self._field(left, "Telegram Bot Token", "TELEGRAM_BOT_TOKEN", True)
         self._field(left, "OpenAI API Key", "OPENAI_API_KEY", True)
-        self._field(left, "Gemini API Key", "GEMINI_API_KEY", True)
         self._field(left, "ID Telegram-группы", "GROUP_CHAT_ID")
         self._field(right, "Модель OpenAI", "OPENAI_MODEL", default="gpt-5.6-luna")
-        self._field(right, "Модель Gemini", "GEMINI_MODEL", default="gemini-2.5-flash")
-        self._field(right, "ИИ для ответов (openai/gemini)", "AI_PROVIDER", default="gemini")
         self._field(right, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
         ttk.Button(settings, text="💾 Сохранить настройки", command=self.save).pack(anchor="e", pady=(8, 0))
 
@@ -228,21 +224,6 @@ class App(tk.Tk):
             OpenAI(api_key=settings.openai_key).models.retrieve(model)
             return f"Модель: {model}"
         self._run_check("openai", worker)
-
-    def check_gemini(self):
-        self.save(quiet=True)
-        def worker():
-            from google import genai
-            key = self.fields["GEMINI_API_KEY"].get().strip()
-            if not key:
-                raise ValueError("Gemini API Key не указан")
-            model = self.fields["GEMINI_MODEL"].get().strip() or "gemini-2.5-flash"
-            client = genai.Client(api_key=key)
-            response = client.models.generate_content(model=model, contents="Ответь одним словом: OK")
-            if not (response.text or "").strip():
-                raise RuntimeError("Gemini не вернул ответ")
-            return f"Модель: {model}"
-        self._run_check("gemini", worker)
 
     def check_google_docs(self):
         self.save(quiet=True)
