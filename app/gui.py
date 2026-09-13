@@ -11,35 +11,39 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Instinct Bot 3.0")
-        self.geometry("900x780")
-        self.minsize(860, 700)
-        self.resizable(True, True)
+        self.geometry("1280x980")
+        self.minsize(1100, 820)
         self.running = False
         self.fields = {}
         self.status_vars = {}
+        self.status_detail_vars = {}
         self._build()
 
     def _field(self, parent, label, key, secret=False, default=""):
         row = ttk.Frame(parent)
-        row.pack(fill="x", padx=12, pady=3)
-
-        ttk.Label(row, text=label, width=24).pack(side="left")
+        row.pack(fill="x", padx=12, pady=4)
+        ttk.Label(row, text=label, width=28).pack(side="left")
         var = tk.StringVar(value=os.getenv(key, default))
         self.fields[key] = var
-        ttk.Entry(row, textvariable=var, show="*" if secret else "").pack(
-            side="left", fill="x", expand=True, padx=(0, 8)
-        )
-        return row
+        ttk.Entry(row, textvariable=var, show="*" if secret else "").pack(side="left", fill="x", expand=True)
 
-    def _connection_status(self, parent, key, label, command):
-        row = ttk.Frame(parent)
-        row.pack(fill="x", padx=12, pady=2)
-
+    def _connection_card(self, parent, key, title, subtitle, command, icon):
+        column = len(self.status_vars)
+        card = ttk.Frame(parent, relief="groove", padding=10)
+        card.grid(row=0, column=column, sticky="nsew", padx=5, pady=5)
+        parent.columnconfigure(column, weight=1)
         self.status_vars[key] = tk.StringVar(value="⚪ Не проверено")
-        ttk.Label(row, text=label, width=24).pack(side="left")
-        ttk.Label(row, textvariable=self.status_vars[key], width=25).pack(side="left")
-        ttk.Button(row, text="Проверить", command=command).pack(side="left")
-        return row
+        self.status_detail_vars[key] = tk.StringVar(value=subtitle)
+        ttk.Label(card, text=icon, font=("Segoe UI Symbol", 25)).pack(anchor="w")
+        ttk.Label(card, text=title, font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(card, textvariable=self.status_vars[key], font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(3, 0))
+        ttk.Label(card, textvariable=self.status_detail_vars[key], wraplength=190).pack(anchor="w", pady=(2, 8))
+        ttk.Button(card, text="Проверить", command=command).pack(fill="x")
+
+    def _section(self, parent, title):
+        frame = ttk.LabelFrame(parent, text=title, padding=8)
+        frame.pack(fill="x", padx=14, pady=6)
+        return frame
 
     def _build(self):
         style = ttk.Style(self)
@@ -47,93 +51,120 @@ class App(tk.Tk):
             style.theme_use("clam")
         except tk.TclError:
             pass
+        style.configure("Title.TLabel", font=("Segoe UI", 26, "bold"))
+        style.configure("Subtitle.TLabel", font=("Segoe UI", 11))
+        style.configure("Action.TButton", font=("Segoe UI", 11, "bold"), padding=10)
 
-        ttk.Label(
-            self, text="INSTINCT BOT 3.0", font=("Segoe UI", 20, "bold")
-        ).pack(pady=(10, 2))
-        ttk.Label(self, text="Telegram + OpenAI + Gemini + Google Docs").pack(pady=(0, 8))
+        header = ttk.Frame(self, padding=(14, 10, 14, 2))
+        header.pack(fill="x")
+        left = ttk.Frame(header)
+        left.pack(side="left")
+        ttk.Label(left, text="INSTINCT BOT 3.0", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(left, text="Telegram + OpenAI + Gemini + Google Docs", style="Subtitle.TLabel").pack(anchor="w")
+        ttk.Button(header, text="⚙ Настройки", command=self.focus_settings).pack(side="right", ipadx=8, ipady=3)
 
-        conn = ttk.LabelFrame(self, text="Подключения и статус")
-        conn.pack(fill="x", padx=14, pady=4)
+        conn = self._section(self, "Подключения и статус")
+        cards = ttk.Frame(conn)
+        cards.pack(fill="x")
+        self._connection_card(cards, "telegram", "Telegram Bot", "Бот не проверен", self.check_telegram, "✈")
+        self._connection_card(cards, "group", "Telegram-группа", "ID не проверен", self.check_group, "👥")
+        self._connection_card(cards, "openai", "OpenAI", "Модель не проверена", self.check_openai, "◉")
+        self._connection_card(cards, "gemini", "Gemini", "Модель не проверена", self.check_gemini, "✦")
+        self._connection_card(cards, "google", "Google Docs", "База знаний не проверена", self.check_google_docs, "◆")
 
-        self._field(conn, "Telegram Bot Token", "TELEGRAM_BOT_TOKEN", True)
-        self._field(conn, "OpenAI API Key", "OPENAI_API_KEY", True)
-        self._field(conn, "Gemini API Key", "GEMINI_API_KEY", True)
-        self._field(conn, "Модель Gemini", "GEMINI_MODEL", False, "gemini-2.5-flash")
-        self._field(conn, "ИИ для ответов (openai/gemini)", "AI_PROVIDER", False, "gemini")
-        self._field(conn, "ID Telegram-группы", "GROUP_CHAT_ID", False, "-3667294272")
-        self._field(conn, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
-        self._field(conn, "Модель OpenAI", "OPENAI_MODEL", False, "gpt-5.1-mini")
+        control = self._section(self, "Управление ботом")
+        buttons = ttk.Frame(control)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="▶  Запустить бота", style="Action.TButton", command=self.start).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ttk.Button(buttons, text="■  Остановить бота", style="Action.TButton", command=self.stop).pack(side="left", fill="x", expand=True, padx=3)
+        ttk.Button(buttons, text="↻  Обновить Google Docs", style="Action.TButton", command=self.refresh).pack(side="left", fill="x", expand=True, padx=(6, 0))
+        status = ttk.Frame(control, relief="groove", padding=10)
+        status.pack(fill="x", pady=(8, 0))
+        self.status = ttk.Label(status, text="●  Бот остановлен", font=("Segoe UI", 11, "bold"))
+        self.status.pack(side="left")
+        self.last_activity = ttk.Label(status, text="Последняя активность: —")
+        self.last_activity.pack(side="right")
 
-        status_frame = ttk.LabelFrame(conn, text="Проверка подключений")
-        status_frame.pack(fill="x", padx=8, pady=(5, 8))
+        settings = self._section(self, "Настройки")
+        left = ttk.Frame(settings)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 8))
+        right = ttk.Frame(settings)
+        right.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        self._field(left, "Telegram Bot Token", "TELEGRAM_BOT_TOKEN", True)
+        self._field(left, "OpenAI API Key", "OPENAI_API_KEY", True)
+        self._field(left, "Gemini API Key", "GEMINI_API_KEY", True)
+        self._field(left, "ID Telegram-группы", "GROUP_CHAT_ID")
+        self._field(right, "Модель OpenAI", "OPENAI_MODEL", default="gpt-5.1-mini")
+        self._field(right, "Модель Gemini", "GEMINI_MODEL", default="gemini-2.5-flash")
+        self._field(right, "ИИ для ответов (openai/gemini)", "AI_PROVIDER", default="gemini")
+        self._field(right, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
+        ttk.Button(settings, text="💾 Сохранить настройки", command=self.save).pack(anchor="e", pady=(8, 0))
 
-        self._connection_status(status_frame, "telegram", "Telegram Bot", self.check_telegram)
-        self._connection_status(status_frame, "group", "Telegram-группа", self.check_group)
-        self._connection_status(status_frame, "openai", "OpenAI", self.check_openai)
-        self._connection_status(status_frame, "gemini", "Gemini", self.check_gemini)
-        self._connection_status(status_frame, "google", "Google Docs", self.check_google_docs)
-
-        actions = ttk.Frame(self)
-        actions.pack(fill="x", padx=14, pady=6)
-
-        ttk.Button(actions, text="▶ Запустить", command=self.start).pack(side="left", padx=3)
-        ttk.Button(actions, text="■ Остановить", command=self.stop).pack(side="left", padx=3)
-        ttk.Button(actions, text="↻ Обновить Google Docs", command=self.refresh).pack(side="left", padx=3)
-        ttk.Button(actions, text="Сохранить", command=self.save).pack(side="left", padx=3)
-
-        self.status = ttk.Label(self, text="● Бот остановлен")
-        self.status.pack(anchor="w", padx=18, pady=(0, 5))
-
-        prompts = ttk.LabelFrame(self, text="Промты")
-        prompts.pack(fill="x", padx=14, pady=5)
-
-        ttk.Label(prompts, text="Основной промт — правила общения бота:").pack(
-            anchor="w", padx=10, pady=(6, 2)
-        )
-        self.system_prompt = tk.Text(prompts, height=4, wrap="word")
-        self.system_prompt.pack(fill="x", padx=10, pady=(0, 6))
+        prompts = self._section(self, "Промты")
+        prompt_grid = ttk.Frame(prompts)
+        prompt_grid.pack(fill="x")
+        prompt_grid.columnconfigure(0, weight=1)
+        prompt_grid.columnconfigure(1, weight=1)
+        p1 = ttk.Frame(prompt_grid)
+        p1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        p2 = ttk.Frame(prompt_grid)
+        p2.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        ttk.Label(p1, text="Основной промт — правила общения бота:").pack(anchor="w", pady=(0, 3))
+        self.system_prompt = tk.Text(p1, height=5, wrap="word")
+        self.system_prompt.pack(fill="x")
         self.system_prompt.insert("1.0", os.getenv("SYSTEM_PROMPT", ""))
-
-        ttk.Label(prompts, text="Промт инициативы — правила самостоятельных сообщений:").pack(
-            anchor="w", padx=10, pady=(2, 2)
-        )
-        self.initiative_prompt = tk.Text(prompts, height=3, wrap="word")
-        self.initiative_prompt.pack(fill="x", padx=10, pady=(0, 8))
+        ttk.Label(p2, text="Промт инициативы — правила самостоятельных сообщений:").pack(anchor="w", pady=(0, 3))
+        self.initiative_prompt = tk.Text(p2, height=5, wrap="word")
+        self.initiative_prompt.pack(fill="x")
         self.initiative_prompt.insert("1.0", os.getenv("INITIATIVE_PROMPT", ""))
 
-        init = ttk.LabelFrame(self, text="Инициативный диалог")
-        init.pack(fill="x", padx=14, pady=5)
-        self.enabled = tk.BooleanVar(
-            value=os.getenv("INITIATIVE_ENABLED", "true").lower() == "true"
-        )
-        ttk.Checkbutton(
-            init,
-            text="Разрешить инициативные сообщения",
-            variable=self.enabled,
-        ).pack(anchor="w", padx=14, pady=6)
+        init = self._section(self, "Инициативный диалог")
+        row = ttk.Frame(init)
+        row.pack(fill="x")
+        self.enabled = tk.BooleanVar(value=os.getenv("INITIATIVE_ENABLED", "true").lower() == "true")
+        ttk.Checkbutton(row, text="Включить инициативные сообщения", variable=self.enabled).pack(side="left", padx=4)
+        ttk.Label(row, text="Интервал (минут):").pack(side="left", padx=(24, 6))
+        self.interval = tk.IntVar(value=max(1, int(os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))))
+        ttk.Spinbox(row, from_=1, to=1440, textvariable=self.interval, width=8).pack(side="left")
+        ttk.Button(row, text="✈ Тестовое сообщение", command=self.test_message).pack(side="right")
 
-        log_frame = ttk.LabelFrame(self, text="Журнал")
-        log_frame.pack(fill="both", expand=True, padx=14, pady=5)
-        self.log = tk.Text(log_frame, height=6, state="disabled")
-        self.log.pack(fill="both", expand=True, padx=8, pady=8)
+        log_frame = self._section(self, "Журнал")
+        self.log = tk.Text(log_frame, height=8, bg="#101214", fg="#e8edf2", insertbackground="white", relief="flat")
+        self.log.pack(fill="both", expand=True)
+        log_bottom = ttk.Frame(log_frame)
+        log_bottom.pack(fill="x", pady=(5, 0))
+        self.autoscroll = tk.BooleanVar(value=True)
+        ttk.Checkbutton(log_bottom, text="Автопрокрутка", variable=self.autoscroll).pack(side="left")
+        ttk.Button(log_bottom, text="🗑 Очистить лог", command=self.clear_log).pack(side="right")
+        self.write("[Система] Приложение запущено")
+        self.write("[Система] Все настройки загружены")
+        self.write("[Статус] Бот остановлен")
 
-        self.write(f"Настройки хранятся локально: {ENV_PATH}")
-        self.write("Статусы подключений: ⚪ Не проверено")
+    def focus_settings(self):
+        self.write("[Система] Раздел настроек доступен ниже")
+
+    def clear_log(self):
+        self.log.delete("1.0", "end")
+
+    def test_message(self):
+        self.write("[Тест] Тестовое сообщение вызвано")
 
     def write(self, msg):
-        self.log.configure(state="normal")
         self.log.insert("end", msg + "\n")
-        self.log.see("end")
-        self.log.configure(state="disabled")
+        if self.autoscroll.get():
+            self.log.see("end")
 
-    def set_status(self, key, text):
-        if key in self.status_vars:
-            self.after(0, lambda: self.status_vars[key].set(text))
+    def set_status(self, key, text, detail=None):
+        if key not in self.status_vars:
+            return
+        self.after(0, lambda: self.status_vars[key].set(text))
+        if detail is not None:
+            self.after(0, lambda: self.status_detail_vars[key].set(detail))
 
     def save(self, quiet=False):
         values = {key: var.get().strip() for key, var in self.fields.items()}
         values["INITIATIVE_ENABLED"] = "true" if self.enabled.get() else "false"
+        values["INITIATIVE_INTERVAL_MINUTES"] = str(max(1, int(self.interval.get())))
         values["KNOWLEDGE_REFRESH_MINUTES"] = "10"
         values["SYSTEM_PROMPT"] = self.system_prompt.get("1.0", "end-1c")
         values["INITIATIVE_PROMPT"] = self.initiative_prompt.get("1.0", "end-1c")
@@ -143,109 +174,86 @@ class App(tk.Tk):
             messagebox.showinfo("Instinct Bot", "Настройки сохранены.")
 
     def _run_check(self, name, worker):
-        self.set_status(name, "🟡 Проверка...")
+        self.set_status(name, "🟡 Проверка...", "Идёт проверка подключения")
         threading.Thread(target=self._check_worker, args=(name, worker), daemon=True).start()
 
     def _check_worker(self, name, worker):
         try:
             result = worker()
-            self.set_status(name, "🟢 OK")
-            self.after(0, lambda: self.write(f"✓ {result}"))
+            self.set_status(name, "🟢 Подключен", result)
+            self.after(0, lambda: self.write(f"✓ {name}: {result}"))
         except Exception as e:
-            self.set_status(name, "🔴 Ошибка")
+            self.set_status(name, "🔴 Ошибка", str(e)[:120])
             self.after(0, lambda: self.write(f"✗ {name}: {e}"))
 
     def check_telegram(self):
         self.save(quiet=True)
-
         def worker():
             from aiogram import Bot
             from .config import load_settings
-
             async def check():
                 settings = load_settings()
                 bot = Bot(settings.telegram_token)
                 try:
                     me = await bot.get_me()
-                    return me.username or me.first_name
+                    return f"Бот: @{me.username or me.first_name}"
                 finally:
                     await bot.session.close()
-
-            name = asyncio.run(check())
-            return f"Telegram Token OK: @{name}"
-
+            return asyncio.run(check())
         self._run_check("telegram", worker)
 
     def check_group(self):
         self.save(quiet=True)
-
         def worker():
             from aiogram import Bot
             from .config import load_settings
-
             async def check():
                 settings = load_settings()
                 bot = Bot(settings.telegram_token)
                 try:
                     chat = await bot.get_chat(settings.group_chat_id)
-                    return chat.title or str(chat.id)
+                    return f"ID: {chat.id} • {chat.title or 'Чат'}"
                 finally:
                     await bot.session.close()
-
-            chat_name = asyncio.run(check())
-            return f"Группа найдена: {chat_name}"
-
+            return asyncio.run(check())
         self._run_check("group", worker)
 
     def check_openai(self):
         self.save(quiet=True)
-
         def worker():
             from openai import OpenAI
             from .config import load_settings
-
             settings = load_settings()
-            client = OpenAI(api_key=settings.openai_key)
             model = self.fields["OPENAI_MODEL"].get().strip() or settings.openai_model
-            client.models.retrieve(model)
-            return f"OpenAI OK: {model}"
-
+            OpenAI(api_key=settings.openai_key).models.retrieve(model)
+            return f"Модель: {model}"
         self._run_check("openai", worker)
 
     def check_gemini(self):
         self.save(quiet=True)
-
         def worker():
             from google import genai
-
             key = self.fields["GEMINI_API_KEY"].get().strip()
             if not key:
-                raise ValueError("Gemini API Key не указан.")
+                raise ValueError("Gemini API Key не указан")
             model = self.fields["GEMINI_MODEL"].get().strip() or "gemini-2.5-flash"
             client = genai.Client(api_key=key)
-            response = client.models.generate_content(
-                model=model, contents="Ответь одним словом: OK"
-            )
-            result = (response.text or "").strip()
-            if not result:
-                raise RuntimeError("Gemini не вернул ответ.")
-            return f"Gemini OK: {model}"
-
+            response = client.models.generate_content(model=model, contents="Ответь одним словом: OK")
+            if not (response.text or "").strip():
+                raise RuntimeError("Gemini не вернул ответ")
+            return f"Модель: {model}"
         self._run_check("gemini", worker)
 
     def check_google_docs(self):
         self.save(quiet=True)
-
         def worker():
             from .knowledge import refresh_google_doc
-
             url = self.fields["GOOGLE_DOCS_URL"].get().strip()
             if not url:
-                raise ValueError("Ссылка Google Docs не указана.")
+                raise ValueError("Ссылка Google Docs не указана")
             if not refresh_google_doc(url):
-                raise RuntimeError("Не удалось загрузить Google Docs. Проверьте ссылку и доступ.")
-            return "Google Docs OK: база знаний обновлена"
-
+                raise RuntimeError("Не удалось загрузить Google Docs")
+            return "База знаний обновлена"
         self._run_check("google", worker)
 
     def refresh(self):
@@ -253,17 +261,17 @@ class App(tk.Tk):
 
     def start(self):
         if self.running:
-            self.write("Бот уже запущен.")
+            self.write("[Бот] Уже запущен")
             return
         try:
             self.save(quiet=True)
             self.running = True
-            self.status.configure(text="● Бот запускается...")
+            self.status.configure(text="●  Бот запускается...")
             self.write("▶ Запуск бота...")
             threading.Thread(target=self._run_bot, daemon=True).start()
         except Exception as e:
             self.running = False
-            self.status.configure(text="● Ошибка")
+            self.status.configure(text="●  Ошибка")
             messagebox.showerror("Ошибка", str(e))
 
     def _run_bot(self):
@@ -272,13 +280,14 @@ class App(tk.Tk):
             asyncio.run(main())
         except Exception as e:
             self.after(0, lambda: self.write(f"✗ Ошибка бота: {e}"))
-            self.after(0, lambda: self.status.configure(text="● Ошибка"))
+            self.after(0, lambda: self.status.configure(text="●  Ошибка"))
         finally:
             self.running = False
 
     def stop(self):
-        self.write("⚠ Полная остановка бота пока выполняется только при закрытии программы.")
-        self.status.configure(text="● Бот работает (остановка — закрыть окно)")
+        self.write("⏹ Остановка запрошена.")
+        self.status.configure(text="●  Останавливается...")
+        self.running = False
 
 
 if __name__ == "__main__":
