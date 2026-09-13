@@ -6,21 +6,40 @@ from tkinter import ttk, messagebox
 
 from .config import save_local_settings, ENV_PATH
 
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Instinct Bot 3.0")
-        self.geometry("820x900")
-        self.resizable(False, False)
+        self.geometry("900x780")
+        self.minsize(860, 700)
+        self.resizable(True, True)
         self.running = False
         self.fields = {}
+        self.status_vars = {}
         self._build()
 
     def _field(self, parent, label, key, secret=False, default=""):
-        ttk.Label(parent, text=label).pack(anchor="w", padx=18, pady=(7, 2))
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=12, pady=3)
+
+        ttk.Label(row, text=label, width=24).pack(side="left")
         var = tk.StringVar(value=os.getenv(key, default))
         self.fields[key] = var
-        ttk.Entry(parent, textvariable=var, show="*" if secret else "").pack(fill="x", padx=18)
+        ttk.Entry(row, textvariable=var, show="*" if secret else "").pack(
+            side="left", fill="x", expand=True, padx=(0, 8)
+        )
+        return row
+
+    def _connection_status(self, parent, key, label, command):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=12, pady=2)
+
+        self.status_vars[key] = tk.StringVar(value="⚪ Не проверено")
+        ttk.Label(row, text=label, width=24).pack(side="left")
+        ttk.Label(row, textvariable=self.status_vars[key], width=25).pack(side="left")
+        ttk.Button(row, text="Проверить", command=command).pack(side="left")
+        return row
 
     def _build(self):
         style = ttk.Style(self)
@@ -28,11 +47,15 @@ class App(tk.Tk):
             style.theme_use("clam")
         except tk.TclError:
             pass
-        ttk.Label(self, text="INSTINCT BOT 3.0", font=("Segoe UI", 20, "bold")).pack(pady=(16, 3))
-        ttk.Label(self, text="Telegram + OpenAI + Google Docs").pack(pady=(0, 12))
 
-        conn = ttk.LabelFrame(self, text="Подключения")
-        conn.pack(fill="x", padx=18, pady=5)
+        ttk.Label(
+            self, text="INSTINCT BOT 3.0", font=("Segoe UI", 20, "bold")
+        ).pack(pady=(10, 2))
+        ttk.Label(self, text="Telegram + OpenAI + Gemini + Google Docs").pack(pady=(0, 8))
+
+        conn = ttk.LabelFrame(self, text="Подключения и статус")
+        conn.pack(fill="x", padx=14, pady=4)
+
         self._field(conn, "Telegram Bot Token", "TELEGRAM_BOT_TOKEN", True)
         self._field(conn, "OpenAI API Key", "OPENAI_API_KEY", True)
         self._field(conn, "Gemini API Key", "GEMINI_API_KEY", True)
@@ -42,46 +65,71 @@ class App(tk.Tk):
         self._field(conn, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
         self._field(conn, "Модель OpenAI", "OPENAI_MODEL", False, "gpt-5.1-mini")
 
-        prompts = ttk.LabelFrame(self, text="Промты")
-        prompts.pack(fill="both", expand=False, padx=18, pady=10)
+        status_frame = ttk.LabelFrame(conn, text="Проверка подключений")
+        status_frame.pack(fill="x", padx=8, pady=(5, 8))
 
-        ttk.Label(prompts, text="Основной промт — правила общения бота:").pack(anchor="w", padx=12, pady=(8, 3))
-        self.system_prompt = tk.Text(prompts, height=7, wrap="word")
-        self.system_prompt.pack(fill="x", padx=12, pady=(0, 8))
+        self._connection_status(status_frame, "telegram", "Telegram Bot", self.check_telegram)
+        self._connection_status(status_frame, "group", "Telegram-группа", self.check_group)
+        self._connection_status(status_frame, "openai", "OpenAI", self.check_openai)
+        self._connection_status(status_frame, "gemini", "Gemini", self.check_gemini)
+        self._connection_status(status_frame, "google", "Google Docs", self.check_google_docs)
+
+        actions = ttk.Frame(self)
+        actions.pack(fill="x", padx=14, pady=6)
+
+        ttk.Button(actions, text="▶ Запустить", command=self.start).pack(side="left", padx=3)
+        ttk.Button(actions, text="■ Остановить", command=self.stop).pack(side="left", padx=3)
+        ttk.Button(actions, text="↻ Обновить Google Docs", command=self.refresh).pack(side="left", padx=3)
+        ttk.Button(actions, text="Сохранить", command=self.save).pack(side="left", padx=3)
+
+        self.status = ttk.Label(self, text="● Бот остановлен")
+        self.status.pack(anchor="w", padx=18, pady=(0, 5))
+
+        prompts = ttk.LabelFrame(self, text="Промты")
+        prompts.pack(fill="x", padx=14, pady=5)
+
+        ttk.Label(prompts, text="Основной промт — правила общения бота:").pack(
+            anchor="w", padx=10, pady=(6, 2)
+        )
+        self.system_prompt = tk.Text(prompts, height=4, wrap="word")
+        self.system_prompt.pack(fill="x", padx=10, pady=(0, 6))
         self.system_prompt.insert("1.0", os.getenv("SYSTEM_PROMPT", ""))
 
-        ttk.Label(prompts, text="Промт инициативы — правила самостоятельных сообщений:").pack(anchor="w", padx=12, pady=(2, 3))
-        self.initiative_prompt = tk.Text(prompts, height=5, wrap="word")
-        self.initiative_prompt.pack(fill="x", padx=12, pady=(0, 10))
+        ttk.Label(prompts, text="Промт инициативы — правила самостоятельных сообщений:").pack(
+            anchor="w", padx=10, pady=(2, 2)
+        )
+        self.initiative_prompt = tk.Text(prompts, height=3, wrap="word")
+        self.initiative_prompt.pack(fill="x", padx=10, pady=(0, 8))
         self.initiative_prompt.insert("1.0", os.getenv("INITIATIVE_PROMPT", ""))
 
         init = ttk.LabelFrame(self, text="Инициативный диалог")
-        init.pack(fill="x", padx=18, pady=10)
-        self.enabled = tk.BooleanVar(value=os.getenv("INITIATIVE_ENABLED", "true").lower() == "true")
-        ttk.Checkbutton(init, text="Разрешить инициативные сообщения", variable=self.enabled).pack(anchor="w", padx=18, pady=8)
+        init.pack(fill="x", padx=14, pady=5)
+        self.enabled = tk.BooleanVar(
+            value=os.getenv("INITIATIVE_ENABLED", "true").lower() == "true"
+        )
+        ttk.Checkbutton(
+            init,
+            text="Разрешить инициативные сообщения",
+            variable=self.enabled,
+        ).pack(anchor="w", padx=14, pady=6)
 
-        self.status = ttk.Label(self, text="● Бот остановлен")
-        self.status.pack(anchor="w", padx=18, pady=5)
+        log_frame = ttk.LabelFrame(self, text="Журнал")
+        log_frame.pack(fill="both", expand=True, padx=14, pady=5)
+        self.log = tk.Text(log_frame, height=6, state="disabled")
+        self.log.pack(fill="both", expand=True, padx=8, pady=8)
 
-        buttons = ttk.Frame(self)
-        buttons.pack(pady=10)
-        ttk.Button(buttons, text="▶ Запустить", command=self.start).pack(side="left", padx=5)
-        ttk.Button(buttons, text="■ Остановить", command=self.stop).pack(side="left", padx=5)
-        ttk.Button(buttons, text="↻ Обновить Google Docs", command=self.refresh).pack(side="left", padx=5)
-        ttk.Button(buttons, text="Сохранить", command=self.save).pack(side="left", padx=5)
-        ttk.Button(buttons, text="Проверить Telegram", command=self.check_telegram).pack(side="left", padx=5)
-        ttk.Button(buttons, text="Проверить группу", command=self.check_group).pack(side="left", padx=5)
-        ttk.Button(buttons, text="Проверить Gemini", command=self.check_gemini).pack(side="left", padx=5)
-
-        self.log = tk.Text(self, height=10, width=90, state="disabled")
-        self.log.pack(fill="both", expand=True, padx=18, pady=(0, 12))
         self.write(f"Настройки хранятся локально: {ENV_PATH}")
+        self.write("Статусы подключений: ⚪ Не проверено")
 
     def write(self, msg):
         self.log.configure(state="normal")
         self.log.insert("end", msg + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+
+    def set_status(self, key, text):
+        if key in self.status_vars:
+            self.after(0, lambda: self.status_vars[key].set(text))
 
     def save(self, quiet=False):
         values = {key: var.get().strip() for key, var in self.fields.items()}
@@ -94,23 +142,23 @@ class App(tk.Tk):
         if not quiet:
             messagebox.showinfo("Instinct Bot", "Настройки сохранены.")
 
-    def refresh(self):
-        try:
-            self.save(quiet=True)
-            from .knowledge import refresh_google_doc
-            url = self.fields["GOOGLE_DOCS_URL"].get().strip()
-            if not url:
-                self.write("⚠ Ссылка Google Docs не указана.")
-                return
-            ok = refresh_google_doc(url)
-            self.write("✓ Google Docs загружен." if ok else "✗ Не удалось загрузить Google Docs. Проверьте доступ по ссылке.")
-        except Exception as e:
-            self.write(f"✗ Ошибка базы знаний: {e}")
+    def _run_check(self, name, worker):
+        self.set_status(name, "🟡 Проверка...")
+        threading.Thread(target=self._check_worker, args=(name, worker), daemon=True).start()
 
+    def _check_worker(self, name, worker):
+        try:
+            result = worker()
+            self.set_status(name, "🟢 OK")
+            self.after(0, lambda: self.write(f"✓ {result}"))
+        except Exception as e:
+            self.set_status(name, "🔴 Ошибка")
+            self.after(0, lambda: self.write(f"✗ {name}: {e}"))
 
     def check_telegram(self):
-        try:
-            self.save(quiet=True)
+        self.save(quiet=True)
+
+        def worker():
             from aiogram import Bot
             from .config import load_settings
 
@@ -123,16 +171,15 @@ class App(tk.Tk):
                 finally:
                     await bot.session.close()
 
-            bot_name = asyncio.run(check())
-            self.write(f"✓ Telegram Token OK: @{bot_name}")
-            messagebox.showinfo("Telegram", f"Бот подключён: @{bot_name}\nТокен действителен.")
-        except Exception as e:
-            self.write(f"✗ Telegram Token: {e}")
-            messagebox.showerror("Telegram — ошибка", str(e))
+            name = asyncio.run(check())
+            return f"Telegram Token OK: @{name}"
+
+        self._run_check("telegram", worker)
 
     def check_group(self):
-        try:
-            self.save(quiet=True)
+        self.save(quiet=True)
+
+        def worker():
             from aiogram import Bot
             from .config import load_settings
 
@@ -146,29 +193,63 @@ class App(tk.Tk):
                     await bot.session.close()
 
             chat_name = asyncio.run(check())
-            self.write(f"✓ Группа найдена: {chat_name} ({self.fields['GROUP_CHAT_ID'].get()})")
-            messagebox.showinfo("Telegram-группа", f"Группа найдена:\n{chat_name}\nID: {self.fields['GROUP_CHAT_ID'].get()}")
-        except Exception as e:
-            self.write(f"✗ Группа: {e}")
-            messagebox.showerror("Telegram-группа — ошибка", "Группа не найдена. Проверьте ID и убедитесь, что бот добавлен в группу.\n\n" + str(e))
+            return f"Группа найдена: {chat_name}"
 
+        self._run_check("group", worker)
+
+    def check_openai(self):
+        self.save(quiet=True)
+
+        def worker():
+            from openai import OpenAI
+            from .config import load_settings
+
+            settings = load_settings()
+            client = OpenAI(api_key=settings.openai_key)
+            model = self.fields["OPENAI_MODEL"].get().strip() or settings.openai_model
+            client.models.retrieve(model)
+            return f"OpenAI OK: {model}"
+
+        self._run_check("openai", worker)
 
     def check_gemini(self):
-        try:
-            self.save(quiet=True)
+        self.save(quiet=True)
+
+        def worker():
             from google import genai
+
             key = self.fields["GEMINI_API_KEY"].get().strip()
             if not key:
                 raise ValueError("Gemini API Key не указан.")
-            client = genai.Client(api_key=key)
             model = self.fields["GEMINI_MODEL"].get().strip() or "gemini-2.5-flash"
-            response = client.models.generate_content(model=model, contents="Ответь одним словом: OK")
+            client = genai.Client(api_key=key)
+            response = client.models.generate_content(
+                model=model, contents="Ответь одним словом: OK"
+            )
             result = (response.text or "").strip()
-            self.write(f"✓ Gemini OK: {model}")
-            messagebox.showinfo("Gemini", f"Gemini подключён.\nМодель: {model}\nОтвет API: {result}")
-        except Exception as e:
-            self.write(f"✗ Gemini: {e}")
-            messagebox.showerror("Gemini — ошибка", str(e))
+            if not result:
+                raise RuntimeError("Gemini не вернул ответ.")
+            return f"Gemini OK: {model}"
+
+        self._run_check("gemini", worker)
+
+    def check_google_docs(self):
+        self.save(quiet=True)
+
+        def worker():
+            from .knowledge import refresh_google_doc
+
+            url = self.fields["GOOGLE_DOCS_URL"].get().strip()
+            if not url:
+                raise ValueError("Ссылка Google Docs не указана.")
+            if not refresh_google_doc(url):
+                raise RuntimeError("Не удалось загрузить Google Docs. Проверьте ссылку и доступ.")
+            return "Google Docs OK: база знаний обновлена"
+
+        self._run_check("google", worker)
+
+    def refresh(self):
+        self.check_google_docs()
 
     def start(self):
         if self.running:
@@ -176,9 +257,9 @@ class App(tk.Tk):
             return
         try:
             self.save(quiet=True)
-            self.refresh()
             self.running = True
             self.status.configure(text="● Бот запускается...")
+            self.write("▶ Запуск бота...")
             threading.Thread(target=self._run_bot, daemon=True).start()
         except Exception as e:
             self.running = False
@@ -196,8 +277,9 @@ class App(tk.Tk):
             self.running = False
 
     def stop(self):
-        self.write("Для полной остановки закройте программу.")
+        self.write("⚠ Полная остановка бота пока выполняется только при закрытии программы.")
         self.status.configure(text="● Бот работает (остановка — закрыть окно)")
+
 
 if __name__ == "__main__":
     App().mainloop()
