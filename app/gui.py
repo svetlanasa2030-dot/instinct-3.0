@@ -94,7 +94,7 @@ class App(tk.Tk):
         self._field(left, "OpenAI API Key", "OPENAI_API_KEY", True)
         self._field(left, "Gemini API Key", "GEMINI_API_KEY", True)
         self._field(left, "ID Telegram-группы", "GROUP_CHAT_ID")
-        self._field(right, "Модель OpenAI", "OPENAI_MODEL", default="gpt-5.1-mini")
+        self._field(right, "Модель OpenAI", "OPENAI_MODEL", default="gpt-5.6-luna")
         self._field(right, "Модель Gemini", "GEMINI_MODEL", default="gemini-2.5-flash")
         self._field(right, "ИИ для ответов (openai/gemini)", "AI_PROVIDER", default="gemini")
         self._field(right, "Google Docs — база знаний", "GOOGLE_DOCS_URL")
