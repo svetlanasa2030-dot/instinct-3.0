@@ -42,7 +42,7 @@ def load_settings() -> Settings:
     return Settings(
         telegram_token=token,
         openai_key=api_key,
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.1-mini"),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
         gemini_key=os.getenv("GEMINI_API_KEY", "").strip(),
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
         ai_provider=os.getenv("AI_PROVIDER", "openai").strip().lower() or "openai",
