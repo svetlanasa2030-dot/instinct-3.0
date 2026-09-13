@@ -10,6 +10,9 @@ APP_DATA = Path(os.getenv("APPDATA", str(Path.home()))) / "InstinctBot"
 APP_DATA.mkdir(parents=True, exist_ok=True)
 ENV_PATH = APP_DATA / ".env"
 load_dotenv(ENV_PATH, override=True)
+# Миграция старой модели, которая больше не доступна в API.
+if os.getenv("OPENAI_MODEL", "").strip() == "gpt-5.1-mini":
+    os.environ["OPENAI_MODEL"] = "gpt-5.6-luna"
 
 
 @dataclass(frozen=True)
