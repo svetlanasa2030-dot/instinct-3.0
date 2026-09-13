@@ -47,8 +47,8 @@ def load_settings() -> Settings:
         initiative_enabled=os.getenv("INITIATIVE_ENABLED", "false").lower() == "true",
         initiative_interval_minutes=max(1, int(os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))),
         db_path=os.getenv("DB_PATH", db_default),
-        system_prompt=os.getenv("SYSTEM_PROMPT", "").strip() or prompts.get("system", ""),
-        initiative_prompt=os.getenv("INITIATIVE_PROMPT", "").strip() or prompts.get("initiative", ""),
+        system_prompt=prompts.get("system", ""),
+        initiative_prompt=prompts.get("initiative", ""),
         google_docs_url=os.getenv("GOOGLE_DOCS_URL", "").strip(),
         knowledge_refresh_minutes=max(1, int(os.getenv("KNOWLEDGE_REFRESH_MINUTES", "10"))),
     )
