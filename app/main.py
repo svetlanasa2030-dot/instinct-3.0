@@ -14,7 +14,15 @@ logging.basicConfig(level=logging.INFO)
 
 settings = load_settings()
 storage = Storage(settings.db_path)
-ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
+ai = AIEngine(
+    settings.ai_provider,
+    settings.openai_key,
+    settings.openai_model,
+    settings.gemini_key,
+    settings.gemini_model,
+    settings.system_prompt,
+    storage,
+)
 bot = Bot(settings.telegram_token)
 dp = Dispatcher()
 dp.include_router(knowledge_router)
@@ -26,17 +34,12 @@ async def on_message(message: Message):
     text = (message.text or "").strip()
     if not text:
         return
-    # Не обрабатываем собственные сообщения бота.
     me = await bot.me()
     if message.from_user and me and message.from_user.id == me.id:
         return
-
     username = message.from_user.username if message.from_user else None
     user_id = message.from_user.id if message.from_user else None
     storage.add(message.chat.id, user_id, username, "user", text)
-
-    # Бот читает каждое сообщение группы и перед ответом сам решает
-    # по основному промту, есть ли повод вступить в разговор.
     try:
         answer = await ai.decide_and_answer(message.chat.id, text)
         if answer:

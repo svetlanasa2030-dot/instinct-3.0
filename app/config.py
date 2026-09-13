@@ -16,6 +16,9 @@ class Settings:
     telegram_token: str
     openai_key: str
     openai_model: str
+    gemini_key: str
+    gemini_model: str
+    ai_provider: str
     group_chat_id: int
     initiative_enabled: bool
     initiative_interval_minutes: int
@@ -29,15 +32,26 @@ def load_settings() -> Settings:
     prompt_path = ROOT / "config" / "prompts.yaml"
     prompts = yaml.safe_load(prompt_path.read_text(encoding="utf-8")) or {}
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
     group_id = os.getenv("GROUP_CHAT_ID", "0").strip()
-    if not token or not api_key or group_id == "0":
-        raise RuntimeError("Заполните Telegram Token, OpenAI API Key и Group Chat ID")
+    provider = os.getenv("AI_PROVIDER", "openai").strip().lower()
+    if not token or group_id == "0":
+        raise RuntimeError("Заполните Telegram Token и Group Chat ID")
+    if provider not in {"openai", "gemini"}:
+        raise RuntimeError("AI_PROVIDER должен быть openai или gemini")
+    if provider == "openai" and not openai_key:
+        raise RuntimeError("Выбран OpenAI, но OpenAI API Key не указан.")
+    if provider == "gemini" and not gemini_key:
+        raise RuntimeError("Выбран Gemini, но Gemini API Key не указан.")
     db_default = str(APP_DATA / "bot.sqlite3")
     return Settings(
         telegram_token=token,
-        openai_key=api_key,
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.1-mini"),
+        openai_key=openai_key,
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.1-mini").strip(),
+        gemini_key=gemini_key,
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
+        ai_provider=provider,
         group_chat_id=int(group_id),
         initiative_enabled=os.getenv("INITIATIVE_ENABLED", "false").lower() == "true",
         initiative_interval_minutes=max(1, int(os.getenv("INITIATIVE_INTERVAL_MINUTES", "60"))),
