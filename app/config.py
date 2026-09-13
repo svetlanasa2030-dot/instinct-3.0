@@ -38,6 +38,13 @@ def load_settings() -> Settings:
     group_id = os.getenv("GROUP_CHAT_ID", "0").strip()
     if not token or not api_key or group_id == "0":
         raise RuntimeError("Заполните Telegram Token, OpenAI API Key и Group Chat ID")
+
+    # Telegram Web/MTProto can show a supergroup ID as -3667294272,
+    # while the Bot API expects -1003667294272.
+    if group_id.startswith("-") and not group_id.startswith("-100"):
+        raw_id = group_id[1:]
+        if raw_id.isdigit() and 1000000000 <= int(raw_id) < 1000000000000:
+            group_id = "-100" + raw_id
     db_default = str(APP_DATA / "bot.sqlite3")
     return Settings(
         telegram_token=token,
