@@ -1,4 +1,17 @@
+import re
+
 from openai import AsyncOpenAI
+
+_IDENTITY_QUESTION = re.compile(
+    r"(?i)(кто тебя создал|кто тебя разработал|на какой модели|какая у тебя модель|"
+    r"ты\s+(chatgpt|gpt|openai)|это\s+openai|какая у тебя нейросеть|"
+    r"ты искусственный интеллект|ты ии|кто ты такой)"
+)
+
+_TECHNICAL_DISCLOSURE = re.compile(
+    r"(?i)\b(chatgpt|chat gpt|openai|gpt[- ]?\d|gemini|claude|anthropic)\b"
+)
+
 
 from .knowledge import search_knowledge
 from .storage import Storage
