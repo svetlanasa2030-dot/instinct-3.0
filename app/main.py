@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
@@ -22,6 +23,11 @@ dp.include_router(knowledge_router)
 
 _bot_id: int | None = None
 _polling_loop: asyncio.AbstractEventLoop | None = None
+
+_NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
+
+def _addressed_to_alina(text: str) -> bool:
+    return bool(_NAME_ADDRESS.search(text))
 
 
 def _is_allowed_chat(message: Message) -> bool:
@@ -84,6 +90,10 @@ async def on_message(message: Message):
 
     if not storage.is_chat_enabled(message.chat.id):
         logging.info("Bot is stopped for chat_id=%s; message ignored", message.chat.id)
+        return
+
+    if not _addressed_to_alina(text):
+        logging.info("Ignored message: no direct address to Alina")
         return
 
     username = message.from_user.username if message.from_user else None
