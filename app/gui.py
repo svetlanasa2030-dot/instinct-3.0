@@ -92,6 +92,8 @@ class App(tk.Tk):
         ttk.Button(webrow, text="🔍 Сканировать сейчас", command=self.scan_web).pack(side="left")
         self.web_status = tk.StringVar(value="⚪ Не сканировалось")
         ttk.Label(webrow, textvariable=self.web_status).pack(side="left", padx=12)
+        self.web_error = tk.StringVar(value="")
+        ttk.Label(web, textvariable=self.web_error, wraplength=1000, justify="left").pack(anchor="w", padx=12, pady=(0, 4))
         settings = self._section(self, "Настройки")
         left = ttk.Frame(settings)
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
@@ -253,6 +255,8 @@ class App(tk.Tk):
             messagebox.showwarning("Сканирование", "Укажите адрес сайта или форума.")
             return
         self.web_status.set("🟡 Сканирование...")
+        self.web_error.set("")
+        self.write("[Сканер] Запуск сканирования...")
         def worker():
             from .config import load_settings
             from .web_crawler import crawl
@@ -269,10 +273,12 @@ class App(tk.Tk):
                 except Exception as e:
                     errors.append(f"{u}: {e}")
                     self.after(0, lambda u=u, e=e: self.write(f"✗ {u}: {e}"))
+                    self.after(0, lambda u=u, e=e: self.web_error.set(f"🔴 Ошибка сканирования {u}: {e}"))
             if errors and total == 0:
                 self.after(0, lambda: self.web_status.set("🔴 Ошибка — см. журнал"))
             else:
                 self.after(0, lambda: self.web_status.set(f"🟢 Загружено страниц: {total}"))
+                self.after(0, lambda: self.web_error.set(""))
                 self.after(0, lambda: self.write(f"✓ Сканирование завершено: {total} страниц"))
         threading.Thread(target=worker, daemon=True).start()
 
