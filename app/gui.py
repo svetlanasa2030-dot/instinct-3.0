@@ -182,15 +182,18 @@ class App(tk.Tk):
         self.write("[Статус] Бот остановлен")
 
     def scan_sources(self):
-        urls = [self.source_url.get().strip(), self.sitemap_url.get().strip()]
-        urls = [u for u in urls if u]
-        if not urls:
+        site_url = self.source_url.get().strip()
+        forum_url = self.sitemap_url.get().strip()
+        urls = [site_url] if site_url else []
+        if not urls and not forum_url:
             messagebox.showwarning("Источники знаний", "Укажите сайт или форум.")
             return
         self.save(quiet=True)
         self.source_status.set("🟡 Сканирование...")
         self.source_error.set("")
-        self.write("[Источники] Начато сканирование")
+        if forum_url:
+            self.write("[Форум] Прямое сканирование отключено: используется поиск по форуму при вопросе.")
+        self.write("[Источники] Начато сканирование сайта")
         def worker():
             try:
                 from .source_sync import collect_sources
@@ -211,6 +214,8 @@ class App(tk.Tk):
                     for root, count, _ in details
                 )
                 self.after(0, lambda: self.source_status.set(f"🟢 Загружено страниц: {total}"))
+                if forum_url:
+                    summary += " | Форум: поиск по поисковику при вопросе"
                 self.after(0, lambda: self.source_error.set(summary))
                 self.after(0, lambda: self.write(f"[Источники] Сканирование завершено: {summary}"))
             except Exception as e:
