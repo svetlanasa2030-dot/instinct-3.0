@@ -11,8 +11,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Instinct Bot 3.0")
-        self.geometry("1280x980")
-        self.minsize(1100, 820)
+        self.geometry("1280x1100")
+        self.minsize(1100, 900)
         self.running = False
         self.fields = {}
         self.status_vars = {}
@@ -85,16 +85,19 @@ class App(tk.Tk):
         self.last_activity.pack(side="right")
 
         sources = self._section(self, "📚 Источники знаний")
-        ttk.Label(sources, text="Вставь ссылки списком — по одной ссылке в строке. Программа обработает их по очереди.").pack(anchor="w", padx=12)
-        self.sources_text = tk.Text(sources, height=7, wrap="word")
-        self.sources_text.pack(fill="x", padx=12, pady=5)
-        self.sources_text.insert("1.0", os.getenv("KNOWLEDGE_SOURCES", ""))
-        row = ttk.Frame(sources); row.pack(fill="x", padx=12, pady=(0,5))
-        ttk.Button(row, text="➕ Добавить ссылки", command=self.add_sources).pack(side="left")
-        ttk.Button(row, text="▶ Парсить все ссылки", command=self.parse_all_sources).pack(side="left", padx=8)
-        self.source_status = tk.StringVar(value="⚪ Ссылки не обработаны")
-        ttk.Label(row, textvariable=self.source_status).pack(side="left", padx=8)
-        ttk.Label(sources, text="Результат сохраняется в локальную базу знаний. Google Docs используется ботом как подключённая база для чтения.").pack(anchor="w", padx=12, pady=(0,5))
+        ttk.Label(sources, text="Сайт").pack(anchor="w", padx=12)
+        self.source_url = tk.StringVar(value=os.getenv("KNOWLEDGE_SOURCE_URL", ""))
+        ttk.Entry(sources, textvariable=self.source_url).pack(fill="x", padx=12, pady=4)
+        ttk.Label(sources, text="Форум").pack(anchor="w", padx=12)
+        self.sitemap_url = tk.StringVar(value=os.getenv("KNOWLEDGE_SITEMAP_URL", ""))
+        ttk.Entry(sources, textvariable=self.sitemap_url).pack(fill="x", padx=12, pady=4)
+        row = ttk.Frame(sources)
+        row.pack(fill="x", padx=12, pady=(2, 4))
+        ttk.Button(row, text="🔎 Сканировать сейчас", command=self.scan_sources).pack(side="left")
+        self.source_status = tk.StringVar(value="⚪ Источники не проверены")
+        ttk.Label(row, textvariable=self.source_status).pack(side="left", padx=12)
+        self.source_error = tk.StringVar(value="")
+        ttk.Label(sources, textvariable=self.source_error, foreground="red").pack(anchor="w", padx=12)
         settings = self._section(self, "Настройки")
         left = ttk.Frame(settings)
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
@@ -147,26 +150,27 @@ class App(tk.Tk):
         self.write("[Система] Все настройки загружены")
         self.write("[Статус] Бот остановлен")
 
-    def add_sources(self):
-        self.sources_text.insert("end", ("\n" if self.sources_text.get("1.0","end-1c").strip() else "") + "https://")
-
-    def parse_all_sources(self):
-        urls=[x.strip() for x in self.sources_text.get("1.0","end-1c").splitlines() if x.strip()]
+    def scan_sources(self):
+        urls = [self.source_url.get().strip(), self.sitemap_url.get().strip()]
+        urls = [u for u in urls if u]
         if not urls:
-            messagebox.showwarning("Источники знаний", "Вставьте хотя бы одну ссылку.")
+            messagebox.showwarning("Источники знаний", "Укажите сайт или форум.")
             return
         self.save(quiet=True)
-        self.source_status.set(f"🟡 0/{len(urls)}")
+        self.source_status.set("🟡 Сканирование...")
+        self.source_error.set("")
+        self.write("[Источники] Начато сканирование")
         def worker():
             try:
-                from .source_sync import scan_pages_sequential
-                n=scan_pages_sequential(urls, progress=lambda done,total:self.after(0,lambda done=done,total=total:self.source_status.set(f"🟡 {done}/{total}")))
-                self.after(0,lambda:self.source_status.set(f"🟢 Обработано: {n}/{len(urls)}"))
-                self.after(0,lambda:self.write(f"[Источники] Обработано: {n}/{len(urls)}"))
+                from .source_sync import collect_sources
+                total = collect_sources(urls, max_pages=500)
+                self.after(0, lambda: self.source_status.set(f"🟢 Загружено страниц: {total}"))
+                self.after(0, lambda: self.write(f"[Источники] Сканирование завершено: {total} страниц"))
             except Exception as e:
-                self.after(0,lambda:self.source_status.set("🔴 Ошибка"))
-                self.after(0,lambda e=e:self.write(f"[Источники] Ошибка: {e}"))
-        threading.Thread(target=worker,daemon=True).start()
+                self.after(0, lambda: self.source_status.set("🔴 Ошибка"))
+                self.after(0, lambda e=e: self.source_error.set(f"Ошибка сканирования: {e}"))
+                self.after(0, lambda e=e: self.write(f"[Источники] Ошибка: {e}"))
+        threading.Thread(target=worker, daemon=True).start()
 
     def focus_settings(self):
         self.write("[Система] Раздел настроек доступен ниже")
