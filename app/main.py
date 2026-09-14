@@ -17,7 +17,6 @@ logging.basicConfig(
 settings = load_settings()
 storage = Storage(settings.db_path)
 ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
-bot = Bot(settings.telegram_token)
 dp = Dispatcher()
 dp.include_router(knowledge_router)
 
@@ -110,6 +109,7 @@ async def on_message(message: Message):
 async def main():
     global _bot_id
 
+    bot = Bot(settings.telegram_token)
     me = await bot.get_me()
     _bot_id = me.id
 
@@ -134,10 +134,13 @@ async def main():
         settings.group_chat_id,
     )
 
-    await dp.start_polling(
-        bot,
-        allowed_updates=dp.resolve_used_update_types(),
-    )
+    try:
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+        )
+    finally:
+        await bot.session.close()
 
 
 if __name__ == "__main__":
