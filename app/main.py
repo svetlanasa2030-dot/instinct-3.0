@@ -21,6 +21,7 @@ dp = Dispatcher()
 dp.include_router(knowledge_router)
 
 _bot_id: int | None = None
+_polling_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _is_allowed_chat(message: Message) -> bool:
@@ -107,8 +108,9 @@ async def on_message(message: Message):
 
 
 async def main():
-    global _bot_id
+    global _bot_id, _polling_loop
 
+    _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
     me = await bot.get_me()
     _bot_id = me.id
