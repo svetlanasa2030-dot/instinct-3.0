@@ -28,23 +28,10 @@ def _is_allowed_chat(message: Message) -> bool:
     return message.chat.id == settings.group_chat_id
 
 
-def _is_admin_user(message: Message) -> bool:
-    # Управление ботом разрешено владельцу/настроенному пользователю через ADMIN_USER_ID.
-    # Если переменная не задана, команды /start, /stop, /status доступны для совместимости.
-    admin_user_id = getattr(settings, "admin_user_id", None)
-    if admin_user_id is None:
-        return True
-    return bool(message.from_user and message.from_user.id == admin_user_id)
-
-
 @dp.message(F.text.startswith("/start"))
 async def command_start(message: Message):
     if not _is_allowed_chat(message):
         return
-    if not _is_admin_user(message):
-        await message.answer("⛔ У тебя нет прав для управления ботом.")
-        return
-
     storage.set_chat_enabled(message.chat.id, True)
     await message.answer("🟢 Бот запущен. Теперь отвечаю на сообщения.")
 
@@ -53,10 +40,6 @@ async def command_start(message: Message):
 async def command_stop(message: Message):
     if not _is_allowed_chat(message):
         return
-    if not _is_admin_user(message):
-        await message.answer("⛔ У тебя нет прав для управления ботом.")
-        return
-
     storage.set_chat_enabled(message.chat.id, False)
     await message.answer("🔴 Бот остановлен. Команду /start можно использовать для запуска.")
 
@@ -65,10 +48,6 @@ async def command_stop(message: Message):
 async def command_status(message: Message):
     if not _is_allowed_chat(message):
         return
-    if not _is_admin_user(message):
-        await message.answer("⛔ У тебя нет прав для управления ботом.")
-        return
-
     enabled = storage.is_chat_enabled(message.chat.id)
     status = "🟢 запущен" if enabled else "🔴 остановлен"
     await message.answer(f"Статус бота: {status}.")
@@ -100,11 +79,9 @@ async def on_message(message: Message):
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id:
         return
 
-    # Команды управления обрабатываются отдельными handlers выше.
     if text.split()[0].split("@")[0].lower() in {"/start", "/stop", "/status"}:
         return
 
-    # После /stop обычные сообщения полностью игнорируются.
     if not storage.is_chat_enabled(message.chat.id):
         logging.info("Bot is stopped for chat_id=%s; message ignored", message.chat.id)
         return
