@@ -2,6 +2,7 @@ from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
 
+
 class Storage:
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
@@ -15,6 +16,11 @@ class Storage:
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS chat_settings (
+                chat_id INTEGER PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL
             )""")
 
     def _conn(self):
@@ -34,3 +40,28 @@ class Storage:
                 (chat_id, limit),
             ).fetchall()
         return list(reversed(rows))
+
+    def is_chat_enabled(self, chat_id: int) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT enabled FROM chat_settings WHERE chat_id=?",
+                (chat_id,),
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO chat_settings(chat_id, enabled, updated_at) VALUES(?,?,?)",
+                    (chat_id, 1, datetime.now(timezone.utc).isoformat()),
+                )
+                return True
+            return bool(row[0])
+
+    def set_chat_enabled(self, chat_id: int, enabled: bool):
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO chat_settings(chat_id, enabled, updated_at)
+                   VALUES(?,?,?)
+                   ON CONFLICT(chat_id) DO UPDATE SET
+                       enabled=excluded.enabled,
+                       updated_at=excluded.updated_at""",
+                (chat_id, 1 if enabled else 0, datetime.now(timezone.utc).isoformat()),
+            )
