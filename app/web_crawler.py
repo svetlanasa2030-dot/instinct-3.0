@@ -39,12 +39,32 @@ def _sitemap_urls(root):
     return urls
 
 def crawl(root_url, db_path, max_pages=10000):
+    # Discover public sitemap/feed endpoints before normal same-domain traversal.
+    try:
+        from .public_sources import discover_public_sources
+        public_sources = discover_public_sources(root_url)
+    except Exception:
+        public_sources = []
     root_url=root_url.strip().rstrip("/")
     p=urllib.parse.urlparse(root_url)
     if p.scheme not in ("http","https") or not p.netloc:
         raise ValueError("Некорректный URL")
     domain=p.netloc.lower()
     queue=[root_url]
+    for source in public_sources:
+        try:
+            with _fetch(source) as r:
+                data=r.read(5000000).decode("utf-8","ignore")
+            try:
+                xml=ET.fromstring(data)
+                for el in xml.iter():
+                    if el.tag.lower().endswith("loc") and el.text:
+                        u=el.text.strip()
+                        if urllib.parse.urlparse(u).netloc.lower()==domain: queue.append(u)
+            except Exception:
+                pass
+        except Exception:
+            pass
     queue.extend(_sitemap_urls(root_url))
     seen=set(); count=0; last_error=None
     db=sqlite3.connect(db_path)
