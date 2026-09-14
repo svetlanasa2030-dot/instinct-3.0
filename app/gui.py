@@ -163,9 +163,21 @@ class App(tk.Tk):
         def worker():
             try:
                 from .source_sync import collect_sources
-                total = collect_sources(urls, max_pages=500)
+                def progress(root, loaded, seen, pending, error):
+                    label = "Форум" if "forum." in root.lower() or "/forum" in root.lower() else "Сайт"
+                    msg = f"🟡 {label}: {loaded} стр. | найдено ссылок: {seen}"
+                    if error:
+                        msg += f" | последняя ошибка: {error[:80]}"
+                    self.after(0, lambda msg=msg: self.source_status.set(msg))
+                    self.after(0, lambda msg=msg: self.write(f"[Источники] {msg}"))
+                total, details = collect_sources(urls, max_pages=20000, progress=progress)
+                summary = " | ".join(
+                    f"{'Форум' if ('forum.' in root.lower() or '/forum' in root.lower()) else 'Сайт'}: {count}"
+                    for root, count, _ in details
+                )
                 self.after(0, lambda: self.source_status.set(f"🟢 Загружено страниц: {total}"))
-                self.after(0, lambda: self.write(f"[Источники] Сканирование завершено: {total} страниц"))
+                self.after(0, lambda: self.source_error.set(summary))
+                self.after(0, lambda: self.write(f"[Источники] Сканирование завершено: {summary}"))
             except Exception as e:
                 self.after(0, lambda: self.source_status.set("🔴 Ошибка"))
                 self.after(0, lambda e=e: self.source_error.set(f"Ошибка сканирования: {e}"))
