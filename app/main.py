@@ -24,6 +24,56 @@ dp.include_router(knowledge_router)
 _bot_id: int | None = None
 
 
+def _is_allowed_chat(message: Message) -> bool:
+    return message.chat.id == settings.group_chat_id
+
+
+def _is_admin_user(message: Message) -> bool:
+    # Управление ботом разрешено владельцу/настроенному пользователю через ADMIN_USER_ID.
+    # Если переменная не задана, команды /start, /stop, /status доступны для совместимости.
+    admin_user_id = getattr(settings, "admin_user_id", None)
+    if admin_user_id is None:
+        return True
+    return bool(message.from_user and message.from_user.id == admin_user_id)
+
+
+@dp.message(F.text.startswith("/start"))
+async def command_start(message: Message):
+    if not _is_allowed_chat(message):
+        return
+    if not _is_admin_user(message):
+        await message.answer("⛔ У тебя нет прав для управления ботом.")
+        return
+
+    storage.set_chat_enabled(message.chat.id, True)
+    await message.answer("🟢 Бот запущен. Теперь отвечаю на сообщения.")
+
+
+@dp.message(F.text.startswith("/stop"))
+async def command_stop(message: Message):
+    if not _is_allowed_chat(message):
+        return
+    if not _is_admin_user(message):
+        await message.answer("⛔ У тебя нет прав для управления ботом.")
+        return
+
+    storage.set_chat_enabled(message.chat.id, False)
+    await message.answer("🔴 Бот остановлен. Команду /start можно использовать для запуска.")
+
+
+@dp.message(F.text.startswith("/status"))
+async def command_status(message: Message):
+    if not _is_allowed_chat(message):
+        return
+    if not _is_admin_user(message):
+        await message.answer("⛔ У тебя нет прав для управления ботом.")
+        return
+
+    enabled = storage.is_chat_enabled(message.chat.id)
+    status = "🟢 запущен" if enabled else "🔴 остановлен"
+    await message.answer(f"Статус бота: {status}.")
+
+
 @dp.message(F.text)
 async def on_message(message: Message):
     global _bot_id
@@ -35,7 +85,7 @@ async def on_message(message: Message):
         message.text,
     )
 
-    if message.chat.id != settings.group_chat_id:
+    if not _is_allowed_chat(message):
         logging.info(
             "Ignored message: chat_id=%s, expected=%s",
             message.chat.id,
@@ -48,6 +98,15 @@ async def on_message(message: Message):
         return
 
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id:
+        return
+
+    # Команды управления обрабатываются отдельными handlers выше.
+    if text.split()[0].split("@")[0].lower() in {"/start", "/stop", "/status"}:
+        return
+
+    # После /stop обычные сообщения полностью игнорируются.
+    if not storage.is_chat_enabled(message.chat.id):
+        logging.info("Bot is stopped for chat_id=%s; message ignored", message.chat.id)
         return
 
     username = message.from_user.username if message.from_user else None
@@ -91,7 +150,6 @@ async def main():
             "Disable Group Privacy in BotFather or make the bot an administrator."
         )
 
-    # Удаляем webhook перед polling, чтобы бот гарантированно получал updates.
     await bot.delete_webhook(drop_pending_updates=False)
 
     logging.info(
