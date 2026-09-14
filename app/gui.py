@@ -257,17 +257,9 @@ class App(tk.Tk):
 
     def _run_bot(self):
         try:
-            from .main import main, bot
+            from .main import main
 
             async def run():
-                me = await bot.get_me()
-                self.after(0, lambda: self.write(
-                    f"✓ Telegram подключен: @{me.username or me.first_name}"
-                ))
-                self.after(0, lambda: self.status.configure(text="●  Бот работает"))
-                self.after(0, lambda: self.last_activity.configure(
-                    text="Последняя активность: запущен"
-                ))
                 await main()
 
             asyncio.run(run())
