@@ -194,7 +194,7 @@ class App(tk.Tk):
         def worker():
             try:
                 from .source_sync import collect_sources
-                def progress(root, loaded, seen, pending, error):
+                def progress(root, loaded, seen, pending, error, current_url=""):
                     label = "Форум" if "forum." in root.lower() or "/forum" in root.lower() else "Сайт"
                     msg = f"🟡 {label}: загружено {loaded} | найдено ссылок: {seen} | очередь: {pending}"
                     if error:
@@ -216,6 +216,18 @@ class App(tk.Tk):
                 self.after(0, lambda e=e: self.source_error.set(f"Ошибка сканирования: {e}"))
                 self.after(0, lambda e=e: self.write(f"[Источники] Ошибка: {e}"))
         threading.Thread(target=worker, daemon=True).start()
+
+    def _add_source_page(self, label, url):
+        if not hasattr(self, "source_pages"):
+            return
+        # Не забиваем интерфейс тысячами строк: показываем последние 300 страниц.
+        existing = {self.source_pages.item(i, "values")[1] for i in self.source_pages.get_children()}
+        if url in existing:
+            return
+        self.source_pages.insert("", "end", values=(label, url))
+        rows = self.source_pages.get_children()
+        if len(rows) > 300:
+            self.source_pages.delete(rows[0])
 
     def focus_settings(self):
         self.write("[Система] Раздел настроек доступен ниже")
