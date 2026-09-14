@@ -1,5 +1,6 @@
-import re, sqlite3, urllib.parse, urllib.request
+import re, sqlite3, urllib.parse, urllib.request, urllib.error
 from html.parser import HTMLParser
+import xml.etree.ElementTree as ET
 
 class _Parser(HTMLParser):
     def __init__(self):
@@ -14,26 +15,59 @@ class _Parser(HTMLParser):
     def handle_data(self, data):
         if self.in_title: self.title.append(data)
 
+def _fetch(url):
+    req=urllib.request.Request(url,headers={
+        "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36",
+        "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language":"ru,en;q=0.8",
+    })
+    return urllib.request.urlopen(req,timeout=20)
+
+def _sitemap_urls(root):
+    urls=[]
+    for path in ("/sitemap.xml","/sitemap_index.xml"):
+        try:
+            with _fetch(urllib.parse.urljoin(root+"/",path)) as r:
+                data=r.read(5_000_000)
+            text=data.decode("utf-8","ignore")
+            root_xml=ET.fromstring(text)
+            for el in root_xml.iter():
+                if el.tag.lower().endswith("loc") and el.text:
+                    urls.append(el.text.strip())
+        except Exception:
+            pass
+    return urls
+
 def crawl(root_url, db_path, max_pages=10000):
     root_url=root_url.strip().rstrip("/")
     p=urllib.parse.urlparse(root_url)
-    if p.scheme not in ("http","https") or not p.netloc: raise ValueError("Некорректный URL")
-    domain=p.netloc.lower(); queue=[root_url]; seen=set(); count=0
+    if p.scheme not in ("http","https") or not p.netloc:
+        raise ValueError("Некорректный URL")
+    domain=p.netloc.lower()
+    queue=[root_url]
+    queue.extend(_sitemap_urls(root_url))
+    seen=set(); count=0; last_error=None
     db=sqlite3.connect(db_path)
     db.execute("CREATE TABLE IF NOT EXISTS web_pages(url TEXT PRIMARY KEY,title TEXT,content TEXT,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
     while queue and count<max_pages:
         url=queue.pop(0)
         if url in seen: continue
         seen.add(url)
+        q0=urllib.parse.urlparse(url)
+        if q0.netloc.lower()!=domain: continue
         try:
-            req=urllib.request.Request(url,headers={"User-Agent":"InstinctBot/3.0"})
-            with urllib.request.urlopen(req,timeout=15) as r:
-                if "text/html" not in r.headers.get("Content-Type",""): continue
-                raw=r.read(2000000)
+            with _fetch(url) as r:
+                content_type=r.headers.get("Content-Type","").lower()
+                if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+                    continue
+                raw=r.read(2_000_000)
             html=raw.decode("utf-8","ignore")
             parser=_Parser(); parser.feed(html)
-            content=re.sub(r"\s+"," ",re.sub(r"<[^>]+>"," ",html)).strip()
-            db.execute("INSERT OR REPLACE INTO web_pages(url,title,content) VALUES(?,?,?)",(url,"".join(parser.title).strip(),content[:100000]))
+            content=re.sub(r"\s+"," ",re.sub(r"<script[^>]*>.*?</script>|<style[^>]*>.*?</style>|<[^>]+>"," ",html,flags=re.I|re.S)).strip()
+            db.execute(
+                "INSERT OR REPLACE INTO web_pages(url,title,content,updated_at) VALUES(?,?,?,CURRENT_TIMESTAMP)",
+                (url,"".join(parser.title).strip(),content[:100000])
+            )
             count+=1
             for href in parser.links:
                 nxt=urllib.parse.urljoin(url,href).split("#")[0]
@@ -41,5 +75,11 @@ def crawl(root_url, db_path, max_pages=10000):
                 if q.scheme in ("http","https") and q.netloc.lower()==domain and nxt not in seen:
                     queue.append(nxt)
             db.commit()
-        except Exception: continue
-    db.close(); return count
+        except urllib.error.HTTPError as e:
+            last_error=f"HTTP {e.code} для {url}"
+        except Exception as e:
+            last_error=f"{type(e).__name__}: {e}"
+    db.close()
+    if count==0 and last_error:
+        raise RuntimeError(last_error)
+    return count
