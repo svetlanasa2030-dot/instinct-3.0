@@ -44,15 +44,6 @@ def load_documents() -> list[tuple[str, str]]:
     return docs
 
 def search_knowledge(query: str, limit: int = 5) -> str:
-    # Перед ответом обновляем небольшую часть настроенных источников.
-    # Это позволяет получать актуальную информацию только по запросу пользователя.
-    try:
-        sources = [x.strip() for x in _SETTINGS.knowledge_sources.splitlines() if x.strip()]
-        if sources:
-            from .source_sync import collect_sources
-            collect_sources(sources, max_pages=10)
-    except Exception:
-        pass
     query_words = Counter(_tokens(query))
     scored = []
     for name, text in load_documents():
