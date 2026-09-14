@@ -84,6 +84,17 @@ class App(tk.Tk):
         self.last_activity = ttk.Label(status, text="Последняя активность: —")
         self.last_activity.pack(side="right")
 
+        sources = self._section(self, "📚 Источники знаний")
+        ttk.Label(sources, text="Введите адрес сайта — Sitemap программа попробует найти автоматически.").pack(anchor="w", padx=12)
+        self.source_url = tk.StringVar(value=os.getenv("KNOWLEDGE_SOURCE_URL", ""))
+        ttk.Entry(sources, textvariable=self.source_url).pack(fill="x", padx=12, pady=5)
+        row = ttk.Frame(sources); row.pack(fill="x", padx=12, pady=(0,5))
+        ttk.Button(row, text="🔎 Найти Sitemap", command=self.find_sitemap).pack(side="left")
+        ttk.Button(row, text="🔄 Собрать источник", command=self.collect_source).pack(side="left", padx=8)
+        self.source_status = tk.StringVar(value="⚪ Источник не проверен")
+        ttk.Label(row, textvariable=self.source_status).pack(side="left", padx=8)
+        self.sitemap_url = tk.StringVar(value=os.getenv("KNOWLEDGE_SITEMAP_URL", ""))
+        ttk.Entry(sources, textvariable=self.sitemap_url).pack(fill="x", padx=12, pady=(0,5))
         settings = self._section(self, "Настройки")
         left = ttk.Frame(settings)
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
@@ -136,6 +147,40 @@ class App(tk.Tk):
         self.write("[Система] Все настройки загружены")
         self.write("[Статус] Бот остановлен")
 
+    def find_sitemap(self):
+        url=self.source_url.get().strip().rstrip("/")
+        if not url:
+            messagebox.showwarning("Источники", "Введите адрес сайта или форума.")
+            return
+        def worker():
+            try:
+                from .source_sync import find_sitemaps
+                found=find_sitemaps(url)
+                self.after(0, lambda: self.sitemap_url.set(found[0] if found else ""))
+                self.after(0, lambda: self.source_status.set(f"🟢 Sitemap: {len(found)} найдено" if found else "🟡 Sitemap не найден"))
+            except Exception as e:
+                self.after(0, lambda: self.source_status.set("🔴 Ошибка"))
+                self.after(0, lambda e=e: self.write(f"[Источники] {e}"))
+        threading.Thread(target=worker,daemon=True).start()
+
+    def collect_source(self):
+        self.save(quiet=True)
+        url=self.source_url.get().strip()
+        if not url:
+            messagebox.showwarning("Источники", "Введите адрес сайта.")
+            return
+        self.source_status.set("🟡 Сбор...")
+        def worker():
+            try:
+                from .source_sync import collect_sources
+                n=collect_sources([url], sitemap=self.sitemap_url.get().strip() or None)
+                self.after(0, lambda: self.source_status.set(f"🟢 Собрано страниц: {n}"))
+                self.after(0, lambda: self.write(f"[Источники] Собрано страниц: {n}"))
+            except Exception as e:
+                self.after(0, lambda: self.source_status.set("🔴 Ошибка"))
+                self.after(0, lambda e=e: self.write(f"[Источники] Ошибка: {e}"))
+        threading.Thread(target=worker,daemon=True).start()
+
     def focus_settings(self):
         self.write("[Система] Раздел настроек доступен ниже")
 
@@ -162,6 +207,8 @@ class App(tk.Tk):
         values["INITIATIVE_ENABLED"] = "true" if self.enabled.get() else "false"
         values["INITIATIVE_INTERVAL_MINUTES"] = str(max(1, int(self.interval.get())))
         values["KNOWLEDGE_REFRESH_MINUTES"] = "10"
+        values["KNOWLEDGE_SOURCE_URL"] = self.source_url.get().strip()
+        values["KNOWLEDGE_SITEMAP_URL"] = self.sitemap_url.get().strip()
         values["SYSTEM_PROMPT"] = self.system_prompt.get("1.0", "end-1c")
         values["INITIATIVE_PROMPT"] = self.initiative_prompt.get("1.0", "end-1c")
         save_local_settings(values)
