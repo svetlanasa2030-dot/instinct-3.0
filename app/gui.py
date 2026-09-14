@@ -184,16 +184,18 @@ class App(tk.Tk):
     def scan_sources(self):
         site_url = self.source_url.get().strip()
         forum_url = self.sitemap_url.get().strip()
-        urls = [site_url] if site_url else []
-        if not urls and not forum_url:
+        urls = []
+        if site_url:
+            urls.append(site_url)
+        if forum_url:
+            urls.append(forum_url)
+        if not urls:
             messagebox.showwarning("Источники знаний", "Укажите сайт или форум.")
             return
         self.save(quiet=True)
         self.source_status.set("🟡 Сканирование...")
         self.source_error.set("")
-        if forum_url:
-            self.write("[Форум] Прямое сканирование отключено: используется поиск по форуму при вопросе.")
-        self.write("[Источники] Начато сканирование сайта")
+        self.write("[Источники] Начато сканирование сайта и форума")
         def worker():
             try:
                 from .source_sync import collect_sources
@@ -208,7 +210,7 @@ class App(tk.Tk):
                     if error:
                         self.after(0, lambda msg=msg: self.write(f"[Источники] {label}: {msg}"))
                 self.after(0, lambda: [self.source_pages.delete(x) for x in self.source_pages.get_children()])
-                total, details = collect_sources(urls, max_pages=5000, progress=progress)
+                total, details = collect_sources(urls, max_pages=20000, progress=progress)
                 summary = " | ".join(
                     f"{'Форум' if ('forum.' in root.lower() or '/forum' in root.lower()) else 'Сайт'}: {count}"
                     for root, count, _ in details
