@@ -116,3 +116,25 @@ def collect_sources(sources, max_pages=500, sitemap=None):
         (KNOWLEDGE_DIR/name).write_text("\n\n---\n\n".join(f"URL: {u}\n{t}" for u,t in pages),encoding="utf-8")
         total+=len(pages)
     return total
+
+
+def scan_pages_sequential(urls, progress=None):
+    KNOWLEDGE_DIR.mkdir(exist_ok=True)
+    total=len(urls); done=0
+    out=KNOWLEDGE_DIR/"manual_pages.md"
+    with out.open("a",encoding="utf-8") as f:
+        for url in urls:
+            url=normalize_url(url)
+            try:
+                with _fetch(url,"text/html,application/xhtml+xml,*/*;q=0.8") as r:
+                    html=r.read(2000000).decode("utf-8","ignore")
+                parser=_P(); parser.feed(html)
+                text=re.sub(r"\s+"," "," ".join(parser.text)).strip()
+                if text:
+                    f.write(f"\n\n## {url}\n\n{text[:50000]}\n")
+                    done+=1
+            except Exception as e:
+                f.write(f"\n\n## {url}\n\n[Ошибка загрузки: {e}]\n")
+            if progress:
+                progress(done,total)
+    return done
