@@ -84,16 +84,6 @@ class App(tk.Tk):
         self.last_activity = ttk.Label(status, text="Последняя активность: —")
         self.last_activity.pack(side="right")
 
-        web = self._section(self, "🌐 Источники знаний")
-        self._field(web, "Сайт", "KNOWLEDGE_WEB_URL")
-        self._field(web, "Форум", "KNOWLEDGE_FORUM_URL")
-        webrow = ttk.Frame(web)
-        webrow.pack(fill="x", padx=12, pady=6)
-        ttk.Button(webrow, text="🔍 Сканировать сейчас", command=self.scan_web).pack(side="left")
-        self.web_status = tk.StringVar(value="⚪ Не сканировалось")
-        ttk.Label(webrow, textvariable=self.web_status).pack(side="left", padx=12)
-        self.web_error = tk.StringVar(value="")
-        ttk.Label(web, textvariable=self.web_error, wraplength=1000, justify="left").pack(anchor="w", padx=12, pady=(0, 4))
         settings = self._section(self, "Настройки")
         left = ttk.Frame(settings)
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
@@ -246,41 +236,6 @@ class App(tk.Tk):
                 raise RuntimeError("Не удалось загрузить Google Docs")
             return "База знаний обновлена"
         self._run_check("google", worker)
-
-    def scan_web(self):
-        self.save(quiet=True)
-        site = self.fields["KNOWLEDGE_WEB_URL"].get().strip()
-        forum = self.fields["KNOWLEDGE_FORUM_URL"].get().strip()
-        if not site and not forum:
-            messagebox.showwarning("Сканирование", "Укажите адрес сайта или форума.")
-            return
-        self.web_status.set("🟡 Сканирование...")
-        self.web_error.set("")
-        self.write("[Сканер] Запуск сканирования...")
-        def worker():
-            from .config import load_settings
-            from .web_crawler import crawl
-            s = load_settings()
-            total = 0
-            errors = []
-            for u in (site, forum):
-                if not u:
-                    continue
-                try:
-                    n = crawl(u, s.db_path)
-                    total += n
-                    self.after(0, lambda u=u, n=n: self.write(f"✓ {u}: {n} страниц"))
-                except Exception as e:
-                    errors.append(f"{u}: {e}")
-                    self.after(0, lambda u=u, e=e: self.write(f"✗ {u}: {e}"))
-                    self.after(0, lambda u=u, e=e: self.web_error.set(f"🔴 Ошибка сканирования {u}: {e}"))
-            if errors and total == 0:
-                self.after(0, lambda: self.web_status.set("🔴 Ошибка — см. журнал"))
-            else:
-                self.after(0, lambda: self.web_status.set(f"🟢 Загружено страниц: {total}"))
-                self.after(0, lambda: self.web_error.set(""))
-                self.after(0, lambda: self.write(f"✓ Сканирование завершено: {total} страниц"))
-        threading.Thread(target=worker, daemon=True).start()
 
     def refresh(self):
         self.check_google_docs()
