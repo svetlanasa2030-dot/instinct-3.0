@@ -160,11 +160,11 @@ def collect_sources(sources, max_pages=20000, progress=None):
                         queued.add(u)
                         queue.append(u)
                 if progress:
-                    progress(root, len(pages), len(seen), len(queue), None)
+                    progress(root, len(pages), len(seen), len(queue), None, url)
             except Exception as e:
                 errors += 1
                 if progress:
-                    progress(root, len(pages), len(seen), len(queue), str(e))
+                    progress(root, len(pages), len(seen), len(queue), str(e), url)
 
         name = re.sub(r"[^a-zA-Z0-9_-]+", "_", domain) + ".md"
         header = f"# {root}\n# Тип: {'форум' if forum else 'сайт'}\n# Загружено страниц: {len(pages)}\n\n"
