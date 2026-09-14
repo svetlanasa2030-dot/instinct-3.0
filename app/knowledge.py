@@ -3,7 +3,7 @@ import re
 from collections import Counter
 import urllib.request
 
-from app.config import load_settings
+from app.config import load_settings\n\n_SETTINGS = load_settings()
 
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = ROOT / "knowledge"
