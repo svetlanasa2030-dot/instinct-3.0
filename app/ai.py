@@ -15,6 +15,7 @@ _TECHNICAL_DISCLOSURE = re.compile(
 
 from .knowledge import search_knowledge
 from .storage import Storage
+from .forum_search import search_forum
 
 
 class AIEngine:
@@ -34,6 +35,14 @@ class AIEngine:
     async def decide_and_answer(self, chat_id: int, user_text: str) -> str:
         context = self.storage.recent(chat_id)
         knowledge = search_knowledge(user_text)
+        forum_url = __import__('os').getenv('KNOWLEDGE_SITEMAP_URL', '').strip()
+        if forum_url:
+            try:
+                forum = search_forum(forum_url, user_text, 5)
+                if forum:
+                    knowledge += '\n\nИнформация из форума:\n' + forum
+            except Exception:
+                pass
         messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "system", "content": (
