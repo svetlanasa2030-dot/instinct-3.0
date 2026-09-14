@@ -28,6 +28,7 @@ class Settings:
     initiative_prompt: str
     google_docs_url: str
     knowledge_refresh_minutes: int
+    knowledge_sources: str
 
 
 def load_settings() -> Settings:
@@ -58,6 +59,7 @@ def load_settings() -> Settings:
         initiative_prompt=prompts.get("initiative", ""),
         google_docs_url=os.getenv("GOOGLE_DOCS_URL", "").strip(),
         knowledge_refresh_minutes=max(1, int(os.getenv("KNOWLEDGE_REFRESH_MINUTES", "10"))),
+        knowledge_sources=os.getenv("KNOWLEDGE_SOURCES", "").strip(),
     )
 
 
