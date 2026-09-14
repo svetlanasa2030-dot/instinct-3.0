@@ -23,6 +23,7 @@ dp.include_router(knowledge_router)
 
 _bot_id: int | None = None
 _polling_loop: asyncio.AbstractEventLoop | None = None
+_polling_task: asyncio.Task | None = None
 
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
@@ -117,8 +118,15 @@ async def on_message(message: Message):
         logging.exception("Failed to generate/send answer: %s", exc)
 
 
+def request_stop():
+    """Request polling shutdown from the GUI thread."""
+    global _polling_loop, _polling_task
+    if _polling_loop and _polling_task and not _polling_task.done():
+        _polling_loop.call_soon_threadsafe(_polling_task.cancel)
+
+
 async def main():
-    global _bot_id, _polling_loop
+    global _bot_id, _polling_loop, _polling_task
 
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
@@ -147,6 +155,7 @@ async def main():
     )
 
     try:
+        _polling_task = asyncio.current_task()
         await dp.start_polling(
             bot,
             allowed_updates=dp.resolve_used_update_types(),
