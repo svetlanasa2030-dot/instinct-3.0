@@ -52,3 +52,16 @@ def search_knowledge(query: str, limit: int = 5) -> str:
     scored.sort(key=lambda item: item[0], reverse=True)
     chunks = [f"Источник: {name}\n{text[:6000]}" for _, name, text in scored[:limit]]
     return "\n\n---\n\n".join(chunks) if chunks else "Релевантной информации в базе знаний не найдено."
+
+
+def append_to_google_docs(webhook_url: str, url: str, text: str) -> bool:
+    if not webhook_url:
+        return False
+    import json
+    payload=json.dumps({"url":url,"text":text},ensure_ascii=False).encode("utf-8")
+    req=urllib.request.Request(webhook_url,data=payload,headers={"Content-Type":"application/json"},method="POST")
+    try:
+        with urllib.request.urlopen(req,timeout=30) as response:
+            return 200 <= response.status < 300
+    except Exception:
+        return False
