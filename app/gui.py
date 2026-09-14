@@ -257,9 +257,23 @@ class App(tk.Tk):
             from .config import load_settings
             from .web_crawler import crawl
             s = load_settings()
-            total = sum(crawl(u, s.db_path) for u in (site, forum) if u)
-            self.after(0, lambda: self.web_status.set(f"🟢 Загружено страниц: {total}"))
-            self.after(0, lambda: self.write(f"✓ Сканирование завершено: {total} страниц"))
+            total = 0
+            errors = []
+            for u in (site, forum):
+                if not u:
+                    continue
+                try:
+                    n = crawl(u, s.db_path)
+                    total += n
+                    self.after(0, lambda u=u, n=n: self.write(f"✓ {u}: {n} страниц"))
+                except Exception as e:
+                    errors.append(f"{u}: {e}")
+                    self.after(0, lambda u=u, e=e: self.write(f"✗ {u}: {e}"))
+            if errors and total == 0:
+                self.after(0, lambda: self.web_status.set("🔴 Ошибка — см. журнал"))
+            else:
+                self.after(0, lambda: self.web_status.set(f"🟢 Загружено страниц: {total}"))
+                self.after(0, lambda: self.write(f"✓ Сканирование завершено: {total} страниц"))
         threading.Thread(target=worker, daemon=True).start()
 
     def refresh(self):
