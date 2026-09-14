@@ -270,9 +270,16 @@ class App(tk.Tk):
             self.running = False
 
     def stop(self):
+        if not self.running:
+            self.write("[Бот] Уже остановлен")
+            return
         self.write("⏹ Остановка запрошена.")
         self.status.configure(text="●  Останавливается...")
-        self.running = False
+        try:
+            from .main import request_stop
+            request_stop()
+        except Exception as e:
+            self.write(f"✗ Ошибка остановки: {e}")
 
 
 if __name__ == "__main__":
