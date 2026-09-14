@@ -148,7 +148,7 @@ class App(tk.Tk):
         self.write("[Статус] Бот остановлен")
 
     def find_sitemap(self):
-        url=self.source_url.get().strip().rstrip("/")
+        url=self.source_url.get().strip()
         if not url:
             messagebox.showwarning("Источники", "Введите адрес сайта или форума.")
             return
