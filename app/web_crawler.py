@@ -25,7 +25,7 @@ def _fetch(url):
 
 def _sitemap_urls(root):
     urls=[]
-    for path in ("/sitemap.xml","/sitemap_index.xml"):
+    for path in ("/sitemap.xml","/sitemap_index.xml","/sitemap.php","/sitemap-index.xml"):
         try:
             with _fetch(urllib.parse.urljoin(root+"/",path)) as r:
                 data=r.read(5_000_000)
