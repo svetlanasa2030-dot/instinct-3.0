@@ -3,7 +3,9 @@ import re
 from collections import Counter
 import urllib.request
 
-from app.config import load_settings\n\n_SETTINGS = load_settings()
+from app.config import load_settings
+
+_SETTINGS = load_settings()
 
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = ROOT / "knowledge"
@@ -65,3 +67,14 @@ def append_to_google_docs(webhook_url: str, url: str, text: str) -> bool:
             return 200 <= response.status < 300
     except Exception:
         return False
+
+def refresh_live_sources(query: str, max_pages: int = 6) -> None:
+    """Fetch a small set of relevant pages from configured source sites before answering."""
+    sources = [x.strip() for x in _SETTINGS.knowledge_sources.splitlines() if x.strip()]
+    if not sources:
+        return
+    try:
+        from .source_sync import collect_relevant_sources
+        collect_relevant_sources(sources, query, max_pages=max_pages)
+    except Exception:
+        return
