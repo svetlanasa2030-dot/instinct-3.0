@@ -200,6 +200,8 @@ class App(tk.Tk):
                     if error:
                         msg += f" | ошибка: {error[:100]}"
                     self.after(0, lambda msg=msg: self.source_status.set(msg))
+                    if current_url and not error:
+                        self.after(0, lambda u=current_url, l=label: self._add_source_page(l, u))
                     if error:
                         self.after(0, lambda msg=msg: self.write(f"[Источники] {label}: {msg}"))
                 self.after(0, lambda: [self.source_pages.delete(x) for x in self.source_pages.get_children()])
