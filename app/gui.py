@@ -119,6 +119,20 @@ class App(tk.Tk):
         ttk.Label(row, textvariable=self.source_status).pack(side="left", padx=10)
         self.source_error = tk.StringVar(value="")
         ttk.Label(sources, textvariable=self.source_error, foreground="red", wraplength=900).grid(row=3, column=0, columnspan=2, sticky="w", pady=2)
+        page_frame = ttk.LabelFrame(sources, text="Загруженные страницы", padding=4)
+        page_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        sources.rowconfigure(4, weight=1)
+        page_frame.columnconfigure(0, weight=1)
+        page_frame.rowconfigure(0, weight=1)
+        self.source_pages = ttk.Treeview(page_frame, columns=("type", "url"), show="headings", height=8)
+        self.source_pages.heading("type", text="Источник")
+        self.source_pages.heading("url", text="Страница")
+        self.source_pages.column("type", width=90, stretch=False)
+        self.source_pages.column("url", width=780)
+        self.source_pages.grid(row=0, column=0, sticky="nsew")
+        sb = ttk.Scrollbar(page_frame, orient="vertical", command=self.source_pages.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.source_pages.configure(yscrollcommand=sb.set)
 
         # --- Настройки ---
         settings.columnconfigure(1, weight=1)
@@ -182,12 +196,14 @@ class App(tk.Tk):
                 from .source_sync import collect_sources
                 def progress(root, loaded, seen, pending, error):
                     label = "Форум" if "forum." in root.lower() or "/forum" in root.lower() else "Сайт"
-                    msg = f"🟡 {label}: {loaded} стр. | найдено ссылок: {seen}"
+                    msg = f"🟡 {label}: загружено {loaded} | найдено ссылок: {seen} | очередь: {pending}"
                     if error:
-                        msg += f" | последняя ошибка: {error[:80]}"
+                        msg += f" | ошибка: {error[:100]}"
                     self.after(0, lambda msg=msg: self.source_status.set(msg))
-                    self.after(0, lambda msg=msg: self.write(f"[Источники] {msg}"))
-                total, details = collect_sources(urls, max_pages=20000, progress=progress)
+                    if error:
+                        self.after(0, lambda msg=msg: self.write(f"[Источники] {label}: {msg}"))
+                self.after(0, lambda: [self.source_pages.delete(x) for x in self.source_pages.get_children()])
+                total, details = collect_sources(urls, max_pages=5000, progress=progress)
                 summary = " | ".join(
                     f"{'Форум' if ('forum.' in root.lower() or '/forum' in root.lower()) else 'Сайт'}: {count}"
                     for root, count, _ in details
