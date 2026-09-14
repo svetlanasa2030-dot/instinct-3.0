@@ -118,7 +118,7 @@ def collect_sources(sources, max_pages=500, sitemap=None):
     return total
 
 
-def scan_pages_sequential(urls, progress=None):
+def scan_pages_sequential(urls, progress=None, google_webhook=""):
     KNOWLEDGE_DIR.mkdir(exist_ok=True)
     total=len(urls); done=0
     out=KNOWLEDGE_DIR/"manual_pages.md"
@@ -132,6 +132,9 @@ def scan_pages_sequential(urls, progress=None):
                 text=re.sub(r"\s+"," "," ".join(parser.text)).strip()
                 if text:
                     f.write(f"\n\n## {url}\n\n{text[:50000]}\n")
+                    if google_webhook:
+                        from .knowledge import append_to_google_docs
+                        append_to_google_docs(google_webhook, url, text[:50000])
                     done+=1
             except Exception as e:
                 f.write(f"\n\n## {url}\n\n[Ошибка загрузки: {e}]\n")
