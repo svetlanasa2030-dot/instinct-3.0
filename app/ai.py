@@ -14,7 +14,7 @@ _TECHNICAL_DISCLOSURE = re.compile(
 
 from .knowledge import search_knowledge
 from .storage import Storage
-from .web_search import search_web
+from .web_search import search_comeback_cats, search_web
 
 
 class AIEngine:
@@ -38,13 +38,21 @@ class AIEngine:
         # Для вопросов по Perfect World дополнительно ищем актуальную
         # информацию в открытом интернете и передаём содержимое страниц модели.
         web_context = ""
+        comeback_context = ""
+        try:
+            comeback_context = search_comeback_cats(user_text)
+        except Exception:
+            pass
+
         try:
             web_context = search_web("Perfect World " + user_text, limit=5)
         except Exception:
             pass
 
+        if comeback_context:
+            knowledge += "\n\nОсновной источник ComebackPW:\n" + comeback_context
         if web_context:
-            knowledge += "\n\nАктуальная информация из интернета:\n" + web_context
+            knowledge += "\n\nДополнительная информация из интернета:\n" + web_context
 
         messages = [
             {"role": "system", "content": self.system_prompt},
