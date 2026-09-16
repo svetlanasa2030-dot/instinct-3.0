@@ -4,3 +4,4 @@ python-dotenv>=1.1,<2
 PyYAML>=6.0,<7
 APScheduler>=3.11,<4
 google-genai>=1.0.0
+telethon>=1.40,<2
