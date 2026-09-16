@@ -11,7 +11,7 @@ from app.storage import Storage
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
 try:
-    from app.news_monitor import start_news_monitor
+    from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
     start_news_monitor = None
 
@@ -187,7 +187,7 @@ async def main():
 
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
     if start_news_monitor is not None:
-        _news_monitor_task = asyncio.create_task(start_news_monitor())
+        _news_monitor_task = asyncio.create_task(asyncio.to_thread(run_news_monitor_in_thread))
     else:
         _news_monitor_task = None
         logging.warning("News monitor unavailable: install dependencies from requirements.txt")
