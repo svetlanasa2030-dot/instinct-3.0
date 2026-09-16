@@ -10,6 +10,7 @@ from app.config import load_settings
 from app.storage import Storage
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
+from app.news_monitor import start_news_monitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +27,7 @@ _bot_id: int | None = None
 _polling_loop: asyncio.AbstractEventLoop | None = None
 _polling_task: asyncio.Task | None = None
 _knowledge_sync_task: asyncio.Task | None = None
+_news_monitor_task: asyncio.Task | None = None
 
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
@@ -181,6 +183,7 @@ async def main():
     )
 
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
+    _news_monitor_task = asyncio.create_task(start_news_monitor())
 
     try:
         _polling_task = asyncio.current_task()
@@ -191,6 +194,8 @@ async def main():
     finally:
         if _knowledge_sync_task and not _knowledge_sync_task.done():
             _knowledge_sync_task.cancel()
+        if _news_monitor_task and not _news_monitor_task.done():
+            _news_monitor_task.cancel()
         await bot.session.close()
 
 
