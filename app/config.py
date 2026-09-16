@@ -59,7 +59,7 @@ def load_settings() -> Settings:
         initiative_prompt=prompts.get("initiative", ""),
         google_docs_url=os.getenv("GOOGLE_DOCS_URL", "").strip(),
         knowledge_refresh_minutes=max(1, int(os.getenv("KNOWLEDGE_REFRESH_MINUTES", "10"))),
-        knowledge_sources=os.getenv("KNOWLEDGE_SOURCES", "").strip(),
+        knowledge_sources=os.getenv("KNOWLEDGE_SOURCES", "").strip() or "https://forum.comeback.pw",
     )
 
 
