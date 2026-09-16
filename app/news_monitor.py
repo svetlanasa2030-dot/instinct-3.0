@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 from pathlib import Path
@@ -14,12 +13,6 @@ API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
 API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip()
 SESSION = os.getenv("TELEGRAM_SESSION", "").strip()
 
-client = TelegramClient(
-    StringSession(SESSION) if SESSION else str(Path.home() / ".instinct_news"),
-    API_ID,
-    API_HASH,
-)
-
 
 async def start_news_monitor():
     """Monitor a public Telegram source and forward new posts to one forum topic."""
@@ -29,27 +22,40 @@ async def start_news_monitor():
         )
         return
 
-    await client.start()
-    source = await client.get_entity(SOURCE)
+    try:
+        session = StringSession(SESSION) if SESSION else str(Path.home() / ".instinct_news")
+        client = TelegramClient(session, API_ID, API_HASH)
+        await client.start()
+        source = await client.get_entity(SOURCE)
 
-    @client.on(events.NewMessage(chats=source))
-    async def handler(event):
-        try:
-            message = event.message
-            if not message or not message.id:
-                return
+        @client.on(events.NewMessage(chats=source))
+        async def handler(event):
+            try:
+                message = event.message
+                if not message or not message.id:
+                    return
 
-            # Forward the original post into the selected topic.
-            # reply_to is the topic/thread root in a forum supergroup.
-            await client.forward_messages(
-                TARGET_CHAT_ID,
-                message,
-                from_peer=source,
-                reply_to=TARGET_TOPIC_ID,
-            )
-            logging.info("Forwarded @%s message %s to topic %s", SOURCE, message.id, TARGET_TOPIC_ID)
-        except Exception:
-            logging.exception("Failed to forward news post")
+                await client.forward_messages(
+                    TARGET_CHAT_ID,
+                    message,
+                    from_peer=source,
+                    reply_to=TARGET_TOPIC_ID,
+                )
+                logging.info(
+                    "Forwarded @%s message %s to topic %s",
+                    SOURCE,
+                    message.id,
+                    TARGET_TOPIC_ID,
+                )
+            except Exception:
+                logging.exception("Failed to forward news post")
 
-    logging.info("News monitor started: @%s -> %s topic %s", SOURCE, TARGET_CHAT_ID, TARGET_TOPIC_ID)
-    await client.run_until_disconnected()
+        logging.info(
+            "News monitor started: @%s -> %s topic %s",
+            SOURCE,
+            TARGET_CHAT_ID,
+            TARGET_TOPIC_ID,
+        )
+        await client.run_until_disconnected()
+    except Exception:
+        logging.exception("News monitor failed to start")
