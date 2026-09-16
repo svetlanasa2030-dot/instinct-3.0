@@ -77,21 +77,41 @@ def _fetch_page(url: str, max_chars: int = 7000) -> str:
 
 
 
-COMEBACK_CATS_URL = "https://comeback.pw/cats/146/?page=1"
+COMEBACK_CATS_BASE = "https://comeback.pw/cats/146/"
 
 
-def search_comeback_cats(query: str, max_chars: int = 12000) -> str:
-    """Use the fixed ComebackPW category page as a primary game-market source."""
-    page_text = _fetch_page(COMEBACK_CATS_URL, max_chars=max_chars)
-    if not page_text:
+def search_comeback_cats(query: str, max_pages: int = 20, max_chars_per_page: int = 12000) -> str:
+    """Search the ComebackPW category across multiple pagination pages."""
+    query = query.strip()
+    if not query:
         return ""
-    return (
-        "Источник: ComebackPW — База котов (категория 146, страница 1)\\n"
-        f"URL: {COMEBACK_CATS_URL}\\n"
-        f"Запрос: {query.strip()}\\n"
-        f"Содержимое страницы:\\n{page_text}"
-    )
 
+    query_words = [w for w in re.findall(r"[\wа-яА-ЯёЁ-]{2,}", query.lower())]
+    matches = []
+    seen_text = set()
+
+    for page in range(1, max_pages + 1):
+        url = COMEBACK_CATS_BASE + "?page=" + str(page)
+        page_text = _fetch_page(url, max_chars=max_chars_per_page)
+        if not page_text:
+            break
+
+        normalized = page_text.lower()
+        if normalized in seen_text:
+            break
+        seen_text.add(normalized)
+
+        # Keep pages containing at least one query word. If the query is
+        # coordinates or a short phrase, retaining the full page also lets
+        # the model resolve the exact row and nearby fields.
+        if not query_words or any(word in normalized for word in query_words):
+            matches.append(
+                f"Источник: ComebackPW — категория 146, страница {page}\n"
+                f"URL: {url}\n"
+                f"Содержимое страницы:\n{page_text}"
+            )
+
+    return "\n\n---\n\n".join(matches)
 
 def search_web(query: str, limit: int = 5) -> str:
     """Search the public web with Bing and read the relevant pages."""
