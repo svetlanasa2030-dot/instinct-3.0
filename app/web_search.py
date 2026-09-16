@@ -77,7 +77,7 @@ def _fetch_page(url: str, max_chars: int = 7000) -> str:
 
 
 
-COMEBACK_CATS_URL = "https://comeback.pw/cats/136/"
+COMEBACK_CATS_URL = "https://comeback.pw/cats/146/?page=1"
 
 
 def search_comeback_cats(query: str, max_chars: int = 12000) -> str:
@@ -86,7 +86,7 @@ def search_comeback_cats(query: str, max_chars: int = 12000) -> str:
     if not page_text:
         return ""
     return (
-        "Источник: ComebackPW — База котов (категория 136)\\n"
+        "Источник: ComebackPW — База котов (категория 146, страница 1)\\n"
         f"URL: {COMEBACK_CATS_URL}\\n"
         f"Запрос: {query.strip()}\\n"
         f"Содержимое страницы:\\n{page_text}"
