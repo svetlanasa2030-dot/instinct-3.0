@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 from pathlib import Path
 
 from telethon import TelegramClient, events
@@ -12,6 +13,14 @@ TARGET_TOPIC_ID = int(os.getenv("NEWS_TARGET_TOPIC_ID", "6"))
 API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
 API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip()
 SESSION = os.getenv("TELEGRAM_SESSION", "").strip()
+
+
+def run_news_monitor_in_thread():
+    """Run Telethon in its own event loop to avoid loop conflicts."""
+    try:
+        asyncio.run(start_news_monitor())
+    except Exception:
+        logging.exception("News monitor thread stopped")
 
 
 async def start_news_monitor():
