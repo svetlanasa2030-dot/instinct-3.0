@@ -10,7 +10,10 @@ from app.config import load_settings
 from app.storage import Storage
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
-from app.news_monitor import start_news_monitor
+try:
+    from app.news_monitor import start_news_monitor
+except ImportError:
+    start_news_monitor = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -154,7 +157,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_task
 
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
@@ -183,7 +186,11 @@ async def main():
     )
 
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
-    _news_monitor_task = asyncio.create_task(start_news_monitor())
+    if start_news_monitor is not None:
+        _news_monitor_task = asyncio.create_task(start_news_monitor())
+    else:
+        _news_monitor_task = None
+        logging.warning("News monitor unavailable: install dependencies from requirements.txt")
 
     try:
         _polling_task = asyncio.current_task()
