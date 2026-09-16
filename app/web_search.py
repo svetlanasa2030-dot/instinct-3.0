@@ -76,6 +76,23 @@ def _fetch_page(url: str, max_chars: int = 7000) -> str:
         return ""
 
 
+
+COMEBACK_CATS_URL = "https://comeback.pw/cats/136/"
+
+
+def search_comeback_cats(query: str, max_chars: int = 12000) -> str:
+    """Use the fixed ComebackPW category page as a primary game-market source."""
+    page_text = _fetch_page(COMEBACK_CATS_URL, max_chars=max_chars)
+    if not page_text:
+        return ""
+    return (
+        "Источник: ComebackPW — База котов (категория 136)\\n"
+        f"URL: {COMEBACK_CATS_URL}\\n"
+        f"Запрос: {query.strip()}\\n"
+        f"Содержимое страницы:\\n{page_text}"
+    )
+
+
 def search_web(query: str, limit: int = 5) -> str:
     """Search the public web with Bing and read the relevant pages."""
     query = query.strip()
