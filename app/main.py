@@ -13,7 +13,7 @@ from app.source_sync import collect_sources
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
-    start_news_monitor = None
+    run_news_monitor_in_thread = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +31,7 @@ _polling_loop: asyncio.AbstractEventLoop | None = None
 _polling_task: asyncio.Task | None = None
 _knowledge_sync_task: asyncio.Task | None = None
 _news_monitor_task: asyncio.Task | None = None
+_news_monitor_thread = None
 
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
@@ -157,7 +158,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_task, _news_monitor_thread
 
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
@@ -186,10 +187,17 @@ async def main():
     )
 
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
-    if start_news_monitor is not None:
-        _news_monitor_task = asyncio.create_task(asyncio.to_thread(run_news_monitor_in_thread))
+    if run_news_monitor_in_thread is not None:
+        import threading
+        _news_monitor_thread = threading.Thread(
+            target=run_news_monitor_in_thread,
+            name="telegram-news-monitor",
+            daemon=True,
+        )
+        _news_monitor_thread.start()
+        logging.info("Telegram news monitor thread started")
     else:
-        _news_monitor_task = None
+        _news_monitor_thread = None
         logging.warning("News monitor unavailable: install dependencies from requirements.txt")
 
     try:
