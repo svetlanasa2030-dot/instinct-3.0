@@ -41,9 +41,10 @@ async def start_news_monitor():
 
             # Forward the original post into the selected topic.
             # reply_to is the topic/thread root in a forum supergroup.
-            await client.send_message(
+            await client.forward_messages(
                 TARGET_CHAT_ID,
                 message,
+                from_peer=source,
                 reply_to=TARGET_TOPIC_ID,
             )
             logging.info("Forwarded @%s message %s to topic %s", SOURCE, message.id, TARGET_TOPIC_ID)
