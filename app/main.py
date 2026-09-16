@@ -93,8 +93,15 @@ async def on_message(message: Message):
         logging.info("Bot is stopped for chat_id=%s; message ignored", message.chat.id)
         return
 
-    if not _addressed_to_alina(text):
-        logging.info("Ignored message: no direct address to Alina")
+    # Reply to any message from Alina is also treated as a direct address,
+    # so users can continue the conversation naturally without typing her name.
+    is_reply_to_alina = False
+    if message.reply_to_message is not None:
+        replied_from = message.reply_to_message.from_user
+        is_reply_to_alina = replied_from is not None and replied_from.id == _bot_id
+
+    if not _addressed_to_alina(text) and not is_reply_to_alina:
+        logging.info("Ignored message: no direct address to Alina and not a reply to her")
         return
 
     username = message.from_user.username if message.from_user else None
