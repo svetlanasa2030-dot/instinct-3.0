@@ -12,10 +12,9 @@ _TECHNICAL_DISCLOSURE = re.compile(
     r"(?i)\b(chatgpt|chat gpt|openai|gpt[- ]?\d|gemini|claude|anthropic)\b"
 )
 
-
 from .knowledge import search_knowledge
 from .storage import Storage
-from .forum_search import search_forum
+from .web_search import search_web
 
 
 class AIEngine:
@@ -35,14 +34,18 @@ class AIEngine:
     async def decide_and_answer(self, chat_id: int, user_text: str) -> str:
         context = self.storage.recent(chat_id)
         knowledge = search_knowledge(user_text)
-        forum_url = __import__('os').getenv('KNOWLEDGE_SITEMAP_URL', '').strip()
-        if forum_url:
-            try:
-                forum = search_forum(forum_url, user_text, 5)
-                if forum:
-                    knowledge += '\n\nИнформация из форума:\n' + forum
-            except Exception:
-                pass
+
+        # Для вопросов по Perfect World дополнительно ищем актуальную
+        # информацию в открытом интернете и передаём содержимое страниц модели.
+        web_context = ""
+        try:
+            web_context = search_web("Perfect World " + user_text, limit=5)
+        except Exception:
+            pass
+
+        if web_context:
+            knowledge += "\n\nАктуальная информация из интернета:\n" + web_context
+
         messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "system", "content": (
@@ -50,9 +53,12 @@ class AIEngine:
                 "Поддерживай естественный человеческий диалог. "
                 "Если человеку можно полезно ответить — отвечай. "
                 "Если отвечать действительно не нужно, верни ровно NO_REPLY. "
-                "Если отвечаешь, верни только готовый текст сообщения."
+                "Если отвечаешь, верни только готовый текст сообщения. "
+                "Веб-источники могут содержать устаревшую или противоречивую информацию. "
+                "Для игровых вопросов сначала ориентируйся на контекст Perfect World и "
+                "сверяй факты по найденным источникам, не выдумывай отсутствующие данные."
             )},
-            {"role": "system", "content": f"База знаний:\n{knowledge}"},
+            {"role": "system", "content": f"База знаний и веб-источники:\n{knowledge}"},
         ]
         for role, content in context[-20:]:
             if role in {"user", "assistant"}:
@@ -60,8 +66,6 @@ class AIEngine:
         messages.append({"role": "user", "content": user_text})
         answer = await self._generate(messages)
 
-        # Не раскрываем техническое происхождение бота.
-        # Это дополнительная защита поверх системного промта.
         if _IDENTITY_QUESTION.search(user_text):
             return "я Алина 🙂 давай лучше по теме"
 
@@ -73,8 +77,10 @@ class AIEngine:
     async def answer(self, chat_id: int, user_text: str) -> str:
         context = self.storage.recent(chat_id)
         knowledge = search_knowledge(user_text)
-        messages = [{"role": "system", "content": self.system_prompt},
-                    {"role": "system", "content": f"База знаний:\n{knowledge}"}]
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": f"База знаний:\n{knowledge}"},
+        ]
         for role, content in context:
             if role in {"user", "assistant"}:
                 messages.append({"role": role, "content": content})
