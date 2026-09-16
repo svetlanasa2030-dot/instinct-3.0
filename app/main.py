@@ -9,6 +9,7 @@ from app.ai import AIEngine
 from app.config import load_settings
 from app.storage import Storage
 from app.knowledge_ui import router as knowledge_router
+from app.source_sync import collect_sources
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +25,7 @@ dp.include_router(knowledge_router)
 _bot_id: int | None = None
 _polling_loop: asyncio.AbstractEventLoop | None = None
 _polling_task: asyncio.Task | None = None
+_knowledge_sync_task: asyncio.Task | None = None
 
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
@@ -125,6 +127,23 @@ async def on_message(message: Message):
         logging.exception("Failed to generate/send answer: %s", exc)
 
 
+
+async def _sync_forum_forever():
+    """Keep the configured forum/site index updated in the background."""
+    global _knowledge_sync_task
+    while True:
+        try:
+            sources = [x.strip() for x in settings.knowledge_sources.splitlines() if x.strip()]
+            if sources:
+                await asyncio.to_thread(collect_sources, sources, 20000)
+                logging.info("Knowledge sources synchronized: %s", sources)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.exception("Knowledge synchronization failed: %s", exc)
+        await asyncio.sleep(settings.knowledge_refresh_minutes * 60)
+
+
 def request_stop():
     """Request polling shutdown from the GUI thread."""
     global _polling_loop, _polling_task
@@ -133,7 +152,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task
 
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
@@ -161,6 +180,8 @@ async def main():
         settings.group_chat_id,
     )
 
+    _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
+
     try:
         _polling_task = asyncio.current_task()
         await dp.start_polling(
@@ -168,6 +189,8 @@ async def main():
             allowed_updates=dp.resolve_used_update_types(),
         )
     finally:
+        if _knowledge_sync_task and not _knowledge_sync_task.done():
+            _knowledge_sync_task.cancel()
         await bot.session.close()
 
 
