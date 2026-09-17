@@ -35,8 +35,18 @@ _news_monitor_thread = None
 
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
+
 def _addressed_to_alina(text: str) -> bool:
     return bool(_NAME_ADDRESS.search(text))
+
+
+def _strip_urls(text: str) -> str:
+    """Remove web links from Alina's Telegram replies while keeping link text."""
+    text = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', text)
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    text = re.sub(r'\n[ \t]*\n[ \t]*\n+', '\n\n', text)
+    return text.strip()
 
 
 def _is_allowed_chat(message: Message) -> bool:
@@ -101,8 +111,6 @@ async def on_message(message: Message):
         logging.info("Bot is stopped for chat_id=%s; message ignored", message.chat.id)
         return
 
-    # Reply to any message from Alina is also treated as a direct address,
-    # so users can continue the conversation naturally without typing her name.
     is_reply_to_alina = False
     if message.reply_to_message is not None:
         replied_from = message.reply_to_message.from_user
@@ -125,13 +133,18 @@ async def on_message(message: Message):
             logging.info("OpenAI returned NO_REPLY")
             return
 
+        # Never expose web-search links/citations in Telegram replies.
+        answer = _strip_urls(answer)
+        if not answer:
+            logging.info("Answer became empty after URL removal")
+            return
+
         await message.answer(answer, reply_to_message_id=message.message_id)
         storage.add(message.chat.id, None, None, "assistant", answer)
         logging.info("Telegram reply sent successfully")
 
     except Exception as exc:
         logging.exception("Failed to generate/send answer: %s", exc)
-
 
 
 async def _sync_forum_forever():
