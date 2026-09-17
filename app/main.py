@@ -46,7 +46,6 @@ def _wants_voice(text: str) -> bool: return bool(_VOICE_REQUEST.search(text))
 
 
 def _strip_voice_request(text: str) -> str:
-    """Remove an explicit voice-output instruction before sending the prompt to the AI."""
     cleaned = re.sub(
         r'(?i)\s*(?:,|—|-)?\s*(?:ответ(?:ь|ить)?|скажи|сказать|расскажи|рассказать|произнеси|произнести|озвучь|озвучить|запиши|записать|сделай|отправь|отправить)\s+(?:мне\s+)?(?:голосом|голосовое(?:\s+сообщение)?|голосовым(?:\s+сообщением)?|голосовухой|войсом|аудио)\s*',
         ' ', text,
@@ -59,7 +58,6 @@ def _strip_voice_request(text: str) -> str:
 
 
 def _strip_urls(text: str) -> str:
-    """Remove URLs and link/image targets from Alina's Telegram replies."""
     text = re.sub(r'\[([^\]]+)\]\(\s*<?https?://[^)>]+>?\s*\)', r'\1', text)
     text = re.sub(r'<https?://[^>]+>', '', text)
     text = re.sub(r'\[\s*https?://[^\]]+\s*\]', '', text)
@@ -144,7 +142,6 @@ async def command_unwatch(message: Message):
 
 
 async def _send_voice_reply(message: Message, text: str) -> None:
-    """Synthesize Alina's answer and send it as a Telegram voice message."""
     logging.info('[TTS] starting voice reply: chars=%s', len(text))
     audio = await asyncio.wait_for(ai.synthesize_speech(text), timeout=45)
     logging.info('[TTS] audio generated: bytes=%s', len(audio))
@@ -158,6 +155,15 @@ async def _send_voice_reply(message: Message, text: str) -> None:
     finally:
         if temp_path:
             temp_path.unlink(missing_ok=True)
+
+
+async def _voice_reply_background(message: Message, text: str) -> None:
+    try:
+        await _send_voice_reply(message, text)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logging.exception('[TTS] voice reply failed; text reply was already sent: %s', exc)
 
 
 @dp.message(F.text)
@@ -179,15 +185,11 @@ async def on_message(message: Message):
     try:
         answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
         if not answer: return
-        if wants_voice:
-            try:
-                await _send_voice_reply(message, answer)
-            except Exception as voice_exc:
-                logging.exception('Failed to generate/send requested voice reply, falling back to text: %s', voice_exc)
-                await message.answer(answer, reply_to_message_id=message.message_id)
-        else:
-            await message.answer(answer, reply_to_message_id=message.message_id)
+        # Always send the text response immediately. Voice generation can never block the bot.
+        await message.answer(answer, reply_to_message_id=message.message_id)
         storage.add(message.chat.id, None, None, 'assistant', answer)
+        if wants_voice:
+            asyncio.create_task(_voice_reply_background(message, answer))
     except Exception as exc:
         logging.exception('Failed to generate/send answer: %s', exc)
 
