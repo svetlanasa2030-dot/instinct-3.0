@@ -11,10 +11,6 @@ _IDENTITY_QUESTION = re.compile(
     r"ты искусственный интеллект|ты ии|кто ты такой)"
 )
 
-_TECHNICAL_DISCLOSURE = re.compile(
-    r"(?i)\b(chatgpt|chat gpt|openai|gpt[- ]?\d|gemini|claude|anthropic)\b"
-)
-
 from .knowledge import search_knowledge
 from .storage import Storage
 from .web_search import search_comeback_cats, search_web
@@ -30,9 +26,6 @@ class AIEngine:
     async def _generate(self, messages: list[dict], web_search: bool = False) -> str:
         kwargs = {"model": self.model, "input": messages}
         if web_search:
-            # Stable Responses API web search. Restrict the live lookup to the
-            # ComebackPW site so the model cannot replace seller data with a
-            # generic Perfect World guide or hallucinated crafting information.
             kwargs["tools"] = [{
                 "type": "web_search",
                 "search_context_size": "high",
@@ -78,7 +71,8 @@ class AIEngine:
             {"role": "system", "content": self.system_prompt},
             {"role": "system", "content": (
                 "Ты участвуешь в групповом Telegram-чате. "
-                "Поддерживай естественный человеческий диалог. "
+                "Отвечай сразу по существу вопроса пользователя. Не используй фразы-заглушки, "
+                "отговорки или вступления о технических подробностях. "
                 "Если человеку можно полезно ответить — отвечай. "
                 "Если отвечать действительно не нужно, верни ровно NO_REPLY. "
                 "Если отвечаешь, верни только готовый текст сообщения. "
@@ -90,7 +84,7 @@ class AIEngine:
                 "ищи через встроенный Web Search OpenAI непосредственно на comeback.pw. "
                 "Проверяй сначала Базу котов 1.4.6 и точное название предмета, включая вариант со знаком ★. "
                 "Если найдено объявление — сразу дай игрока, цену продажи, координаты и любой опубликованный "
-                "контакт. Не говори пользователю «проверь котов» и не отправляй его искать самому.\n\n"
+                "контакт. Не говори пользователю проверять базу и не отправляй его искать самому.\n\n"
                 "КРИТИЧЕСКОЕ ПРАВИЛО: если пользователь спрашивает о ПОКУПКЕ У ИГРОКА, не заменяй ответ "
                 "данными о NPC, крафте, дропе или рецепте. Рецепт/крафт можно сообщать только как дополнительную "
                 "информацию после того, как поиск продавца завершён и только если это подтверждено источником. "
@@ -101,7 +95,10 @@ class AIEngine:
                 "что база успешно открыта и для выбранного предмета сейчас нет активных "
                 "объявлений. В этом случае НЕ говори, что база недоступна и НЕ проси скрин. "
                 "Скажи, что актуальных продавцов сейчас не найдено. Если источник базы "
-                "полностью отсутствует, не выдумывай продавцов, цены или координаты."
+                "полностью отсутствует, не выдумывай продавцов, цены или координаты.\n\n"
+                "НИКОГДА НЕ ИСПОЛЬЗУЙ в ответах пользователю фразы: «давай без технических подробностей», "
+                "«не забивай голову техническими деталями», «давай лучше по теме» и любые близкие по смыслу "
+                "варианты. Если пользователь задал игровой вопрос, отвечай на игровой вопрос."
             )},
             {"role": "system", "content": f"База знаний и предварительные источники:\n{knowledge}"},
         ]
@@ -113,10 +110,7 @@ class AIEngine:
         answer = await self._generate(messages, web_search=True)
 
         if _IDENTITY_QUESTION.search(user_text):
-            return "я Алина 🙂 давай лучше по теме"
-
-        if _TECHNICAL_DISCLOSURE.search(answer):
-            return "давай без технических подробностей 🙂"
+            return "я Алина 🙂"
 
         return "" if answer.upper() == "NO_REPLY" else answer
 
