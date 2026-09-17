@@ -30,13 +30,15 @@ class AIEngine:
     async def _generate(self, messages: list[dict], web_search: bool = False) -> str:
         kwargs = {"model": self.model, "input": messages}
         if web_search:
-            # Let the model itself search the live web instead of relying only on
-            # our local/Bing scraper. This is especially important for dynamic
-            # ComebackPW cat listings.
+            # Stable Responses API web search. Restrict the live lookup to the
+            # ComebackPW site so the model cannot replace seller data with a
+            # generic Perfect World guide or hallucinated crafting information.
             kwargs["tools"] = [{
-                "type": "web_search_preview",
+                "type": "web_search",
                 "search_context_size": "high",
+                "filters": {"allowed_domains": ["comeback.pw"]},
             }]
+            kwargs["tool_choice"] = "auto"
         response = await self.client.responses.create(**kwargs)
         answer = (response.output_text or "").strip()
         if not answer:
@@ -60,7 +62,7 @@ class AIEngine:
             logger.exception("[SEARCH] База котов ERROR: %s", exc)
 
         try:
-            web_query = "Perfect World ComebackPW 1.4.6 " + user_text
+            web_query = "site:comeback.pw/cats/146/ Perfect World ComebackPW 1.4.6 " + user_text
             logger.info("[SEARCH] Дополнительный Bing-поиск: %s", web_query)
             web_context = search_web(web_query, limit=5)
             logger.info("[SEARCH] Bing: получено %s chars", len(web_context))
@@ -83,14 +85,17 @@ class AIEngine:
                 "Веб-источники могут содержать устаревшую или противоречивую информацию. "
                 "Для игровых вопросов сначала ориентируйся на контекст Perfect World и "
                 "сверяй факты по найденным источникам, не выдумывай отсутствующие данные.\n\n"
-                "ВАЖНО: у тебя включён живой поиск по интернету. Если пользователь спрашивает, "
-                "где купить предмет, кто продаёт, цену, координаты или контакты продавца на "
-                "ComebackPW 1.4.6 — ОБЯЗАТЕЛЬНО используй web search и ищи непосредственно "
-                "по comeback.pw, особенно Базу котов 1.4.6. Ищи точное название предмета, "
-                "включая вариант со знаком ★. Если найдено объявление, сразу дай игрока, "
-                "цену продажи и координаты. Если на странице есть имя/контакт продавца — "
-                "дай его тоже. Не отправляй пользователя искать самому и не говори, что "
-                "«проверь котов», если ты уже можешь выполнить поиск. Не выдумывай данные.\n\n"
+                "ВАЖНО ДЛЯ ПОИСКА ПРОДАВЦА: если пользователь спрашивает, где купить предмет, "
+                "кто продаёт, цену, координаты или контакты на ComebackPW 1.4.6, обязательно "
+                "ищи через встроенный Web Search OpenAI непосредственно на comeback.pw. "
+                "Проверяй сначала Базу котов 1.4.6 и точное название предмета, включая вариант со знаком ★. "
+                "Если найдено объявление — сразу дай игрока, цену продажи, координаты и любой опубликованный "
+                "контакт. Не говори пользователю «проверь котов» и не отправляй его искать самому.\n\n"
+                "КРИТИЧЕСКОЕ ПРАВИЛО: если пользователь спрашивает о ПОКУПКЕ У ИГРОКА, не заменяй ответ "
+                "данными о NPC, крафте, дропе или рецепте. Рецепт/крафт можно сообщать только как дополнительную "
+                "информацию после того, как поиск продавца завершён и только если это подтверждено источником. "
+                "Если Web Search не нашёл актуальное объявление, честно скажи, что продавец не найден. "
+                "Никогда не придумывай игрока, цену, координаты или контакт.\n\n"
                 "ВАЖНО ДЛЯ ЛОКАЛЬНОЙ БАЗЫ КОТОВ: если источник ComebackPW содержит "
                 "`Статус базы: NO_LISTINGS` или текст `Ничего не найдено`, это означает, "
                 "что база успешно открыта и для выбранного предмета сейчас нет активных "
@@ -105,8 +110,6 @@ class AIEngine:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_text})
 
-        # The final answer gets access to OpenAI's live web-search tool. This is
-        # deliberately the last authority for current seller/contact data.
         answer = await self._generate(messages, web_search=True)
 
         if _IDENTITY_QUESTION.search(user_text):
