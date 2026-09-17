@@ -33,9 +33,29 @@ _knowledge_sync_task: asyncio.Task | None = None
 _news_monitor_thread = None
 _watch_task: asyncio.Task | None = None
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
+_VOICE_REQUEST = re.compile(
+    r'(?i)\b(?:ответь|ответ|скажи|расскажи|произнеси|озвучь|запиши|напиши)\b.{0,80}\b(?:голосом|голосовое|голосовым|голосовухой|аудио)\b'
+    r'|\b(?:голосом|голосовое|голосовым|голосовухой|аудио)\b.{0,80}\b(?:ответь|скажи|расскажи|озвучь|запиши)\b'
+)
 
 
 def _addressed_to_alina(text: str) -> bool: return bool(_NAME_ADDRESS.search(text))
+
+
+def _wants_voice(text: str) -> bool: return bool(_VOICE_REQUEST.search(text))
+
+
+def _strip_voice_request(text: str) -> str:
+    """Remove an explicit voice-output instruction before sending the prompt to the AI."""
+    cleaned = re.sub(
+        r'(?i)\s*(?:,|—|-)?\s*(?:ответь|скажи|расскажи|произнеси|озвучь|запиши)\s+(?:мне\s+)?(?:голосом|голосовое(?:\s+сообщение)?|голосовым(?:\s+сообщением)?|голосовухой|аудио)\s*',
+        ' ', text,
+    )
+    cleaned = re.sub(
+        r'(?i)\s*(?:,|—|-)?\s*(?:голосом|голосовое(?:\s+сообщение)?|голосовым(?:\s+сообщением)?|голосовухой|аудио)\s+(?:ответь|скажи|расскажи|озвучь|запиши)\s*',
+        ' ', cleaned,
+    )
+    return re.sub(r'\s{2,}', ' ', cleaned).strip(' ,—-') or text
 
 
 def _strip_urls(text: str) -> str:
@@ -131,7 +151,7 @@ async def _send_voice_reply(message: Message, text: str) -> None:
         with tempfile.NamedTemporaryFile(prefix="alina_", suffix=".ogg", delete=False) as tmp:
             tmp.write(audio)
             temp_path = Path(tmp.name)
-        await message.answer_voice(FSInputFile(temp_path))
+        await message.answer_voice(FSInputFile(temp_path), reply_to_message_id=message.message_id)
     finally:
         if temp_path:
             temp_path.unlink(missing_ok=True)
@@ -141,21 +161,27 @@ async def _send_voice_reply(message: Message, text: str) -> None:
 async def on_message(message: Message):
     global _bot_id
     if not _is_allowed_chat(message): return
-    text = (message.text or '').strip()
-    if not text: return
+    original_text = (message.text or '').strip()
+    if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/watch','/watches','/unwatch'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/watch','/watches','/unwatch'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
-    if not _addressed_to_alina(text) and not is_reply_to_alina: return
+    if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
+
+    wants_voice = _wants_voice(original_text)
+    text = _strip_voice_request(original_text) if wants_voice else original_text
     storage.add(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, 'user', text)
     try:
         answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
         if not answer: return
-        try:
-            await _send_voice_reply(message, answer)
-        except Exception as voice_exc:
-            logging.exception('Failed to generate/send voice reply, falling back to text: %s', voice_exc)
+        if wants_voice:
+            try:
+                await _send_voice_reply(message, answer)
+            except Exception as voice_exc:
+                logging.exception('Failed to generate/send requested voice reply, falling back to text: %s', voice_exc)
+                await message.answer(answer, reply_to_message_id=message.message_id)
+        else:
             await message.answer(answer, reply_to_message_id=message.message_id)
         storage.add(message.chat.id, None, None, 'assistant', answer)
     except Exception as exc:
