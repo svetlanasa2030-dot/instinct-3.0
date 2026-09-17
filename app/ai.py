@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 
 from openai import AsyncOpenAI
@@ -22,6 +23,8 @@ class AIEngine:
         self.model = model
         self.system_prompt = system_prompt
         self.storage = storage
+        self.tts_model = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+        self.tts_voice = os.getenv("OPENAI_TTS_VOICE", "nova")
 
     async def _generate(self, messages: list[dict], web_search: bool = False) -> str:
         kwargs = {"model": self.model, "input": messages}
@@ -33,6 +36,22 @@ class AIEngine:
         if not answer:
             raise RuntimeError("OpenAI не вернул текстовый ответ")
         return answer
+
+    async def synthesize_speech(self, text: str) -> bytes:
+        """Generate Telegram-compatible Opus voice audio for Alina's reply."""
+        text = text.strip()
+        if not text:
+            raise ValueError("Нельзя озвучить пустой текст")
+        if len(text) > 4000:
+            text = text[:3990].rstrip() + "…"
+
+        response = await self.client.audio.speech.create(
+            model=self.tts_model,
+            voice=self.tts_voice,
+            input=text,
+            response_format="opus",
+        )
+        return await response.read()
 
     async def decide_and_answer(self, chat_id: int, user_text: str) -> str:
         context = self.storage.recent(chat_id)
