@@ -1,6 +1,9 @@
+import logging
 import re
 
 from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
 
 _IDENTITY_QUESTION = re.compile(
     r"(?i)(кто тебя создал|кто тебя разработал|на какой модели|какая у тебя модель|"
@@ -35,19 +38,25 @@ class AIEngine:
         context = self.storage.recent(chat_id)
         knowledge = search_knowledge(user_text)
 
-        # Для вопросов по Perfect World дополнительно ищем актуальную
-        # информацию в открытом интернете и передаём содержимое страниц модели.
         web_context = ""
         comeback_context = ""
         try:
+            logger.info("[SEARCH] Запуск базы котов: %s", user_text)
             comeback_context = search_comeback_cats(user_text)
-        except Exception:
-            pass
+            if comeback_context:
+                logger.info("[SEARCH] База котов: результат получен (%s chars)", len(comeback_context))
+            else:
+                logger.warning("[SEARCH] База котов: результат пустой")
+        except Exception as exc:
+            logger.exception("[SEARCH] База котов ERROR: %s", exc)
 
         try:
-            web_context = search_web("Perfect World " + user_text, limit=5)
-        except Exception:
-            pass
+            web_query = "Perfect World " + user_text
+            logger.info("[SEARCH] Запуск веб-поиска: %s", web_query)
+            web_context = search_web(web_query, limit=5)
+            logger.info("[SEARCH] Веб-поиск: получено %s chars", len(web_context))
+        except Exception as exc:
+            logger.exception("[SEARCH] Веб-поиск ERROR: %s", exc)
 
         if comeback_context:
             knowledge += "\n\nОсновной источник ComebackPW:\n" + comeback_context
