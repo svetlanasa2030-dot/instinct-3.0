@@ -37,8 +37,19 @@ def _addressed_to_alina(text: str) -> bool: return bool(_NAME_ADDRESS.search(tex
 
 
 def _strip_urls(text: str) -> str:
-    text = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', text)
-    text = re.sub(r'https?://\S+', '', text)
+    """Remove URLs and link/image targets from Alina's Telegram replies."""
+    # Markdown links: [visible text](https://example.com) -> visible text.
+    text = re.sub(r'\[([^\]]+)\]\(\s*<?https?://[^)>]+>?\s*\)', r'\1', text)
+    # Telegram/Markdown autolinks: <https://example.com> or [https://example.com].
+    text = re.sub(r'<https?://[^>]+>', '', text)
+    text = re.sub(r'\[\s*https?://[^\]]+\s*\]', '', text)
+    # Bare URLs, including web.telegram.org emoji image URLs.
+    text = re.sub(r'https?://[^\s)\]>]+', '', text)
+    # Remove markdown image syntax while preserving alt text.
+    text = re.sub(r'!\[([^\]]*)\]\(\s*\)', r'\1', text)
+    # Clean empty parentheses/brackets left by removed links.
+    text = re.sub(r'\(\s*\)', '', text)
+    text = re.sub(r'\[\s*\]', '', text)
     text = re.sub(r'[ \t]{2,}', ' ', text)
     text = re.sub(r'\n[ \t]*\n[ \t]*\n+', '\n\n', text)
     return text.strip()
