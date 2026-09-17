@@ -59,7 +59,6 @@ class _TextParser(HTMLParser):
 
 
 class _TableParser(HTMLParser):
-    """Extract real HTML table rows when the site renders them as tables."""
     def __init__(self):
         super().__init__()
         self.tables = []
@@ -182,8 +181,6 @@ def _item_page_matches(html: str, item_query: str) -> tuple[bool, int]:
     normalized = _normalize_name(text)
     if not wanted or wanted not in normalized:
         return False, -1
-    # The real item name is near the beginning of its DB page. Reject pages
-    # where the name appears only deep inside a recipe/drop list.
     position = normalized.find(wanted)
     return position >= 0 and position < 2500, position
 
@@ -258,6 +255,43 @@ def _extract_cat_rows(html: str) -> list[list[str]]:
     return best
 
 
+def _extract_div_cat_rows(text: str, item_query: str) -> list[str]:
+    """Parse the actual catbase DOM text. The live page uses divs, not an HTML table."""
+    normalized_item = _normalize_name(item_query)
+    parts = [p.strip() for p in text.split("\n") if p.strip()]
+    if not parts:
+        return []
+
+    # Locate every occurrence of the selected item. Each listing is rendered as:
+    # player -> item -> sale price -> optional purchase price -> coordinates.
+    item_indexes = [i for i, p in enumerate(parts) if _normalize_name(p) == normalized_item]
+    rows = []
+    for item_index in item_indexes:
+        player = ""
+        for j in range(item_index - 1, max(-1, item_index - 6), -1):
+            candidate = parts[j]
+            if candidate and _normalize_name(candidate) not in {normalized_item, "ник игрока", "предмет", "продажа", "покупка", "координаты"}:
+                player = candidate
+                break
+        sale = ""
+        buy = ""
+        coords = ""
+        after = parts[item_index + 1:item_index + 7]
+        for candidate in after:
+            if not sale and re.fullmatch(r"[\d\s,.]+", candidate):
+                sale = candidate
+                continue
+            if sale and not buy and re.fullmatch(r"[\d\s,.]+", candidate):
+                buy = candidate
+                continue
+            if re.search(r"\b(?:Мир|ГД|ГИ|ГДЗ|ГП|ЛЗ|ПВП|Храм|Город)\b", candidate, re.I) and re.search(r"\d+\s+\d+", candidate):
+                coords = candidate
+                break
+        if player and (sale or coords):
+            rows.append(f"Игрок: {player} | Кот: {item_query} | Продажа: {sale} | Покупка: {buy} | Координаты: {coords}")
+    return rows
+
+
 def _format_cat_rows(rows: list[list[str]]) -> str:
     if not rows:
         return ""
@@ -292,49 +326,45 @@ def _format_cat_rows(rows: list[list[str]]) -> str:
     return "\n".join(out)
 
 
-def _focused_listing_context(text: str, item_query: str) -> str:
-    """Keep the seller row context even when the catbase uses divs instead of <table>."""
-    normalized_text = _normalize_name(text)
-    wanted = _normalize_name(item_query)
-    position = normalized_text.find(wanted)
-    if position < 0:
-        return ""
-    # Normalized text loses exact spacing, but gives a stable local window.
-    left = max(0, position - 220)
-    right = min(len(normalized_text), position + 900)
-    return normalized_text[left:right]
-
-
 def _search_cat_by_item_id(item_id: int, item_url: str = "", item_query: str = "") -> str:
     url = COMEBACK_CATS_BASE + "?item_id=" + str(item_id)
     logger.info("[CATS] Запрос базы котов: %s", url)
     html = _fetch_html(url)
     if not html:
         logger.warning("[CATS] Пустой ответ базы котов для ID=%s", item_id)
-        return ""
+        return (
+            "Источник: ComebackPW — База котов 1.4.6\n"
+            "Статус базы: DIRECT_URL_REQUIRED\n"
+            f"Предмет ID: {item_id}\n"
+            f"URL: {url}\n"
+            f"Страница предмета в DB: {item_url}\n"
+            "Локальный HTTP-клиент не получил HTML базы котов. Обязательно открой URL базы котов "
+            "через Web Search/OpenAI и извлеки объявления игроков. Не объявляй продавцов отсутствующими."
+        )
 
     text_parser = _TextParser()
     text_parser.feed(html)
-    text = " ".join(text_parser.parts)
+    text = "\n".join(text_parser.parts)
     rows = _extract_cat_rows(html)
     structured = _format_cat_rows(rows)
-    focused = _focused_listing_context(text, item_query) if item_query else ""
+    div_rows = _extract_div_cat_rows(text, item_query) if item_query else []
 
     lower = text.lower()
     no_listings_text = any(x in lower for x in ("ничего не найдено", "объявлений не найдено", "нет объявлений"))
     has_item = bool(item_query and _normalize_name(item_query) in _normalize_name(text))
-    has_rows = bool(structured)
-    listings_found = bool(has_rows or (has_item and not no_listings_text))
+    listings_found = bool(structured or div_rows)
 
     logger.info(
-        "[CATS] ID=%s chars=%s table_rows=%s has_item=%s listings=%s",
-        item_id, len(text), len(rows), has_item, listings_found,
+        "[CATS] ID=%s chars=%s table_rows=%s div_rows=%s has_item=%s listings=%s",
+        item_id, len(text), len(rows), len(div_rows), has_item, listings_found,
     )
 
     if structured:
         listings = structured
-    elif focused:
-        listings = "Контекст строки объявления:\n" + focused
+    elif div_rows:
+        listings = "\n".join(div_rows)
+    elif no_listings_text:
+        listings = "Активных объявлений не найдено."
     else:
         listings = text[:16000]
 
@@ -419,12 +449,10 @@ def search_web(query: str, limit: int = 5) -> str:
     parser.feed(data)
     results, seen = [], set()
     for title, url in parser.results:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in {"http", "https"} or url in seen:
+        if url in seen:
             continue
         seen.add(url)
-        page_text = _fetch_page(url, max_chars=7000)
-        results.append(f"Источник: {title}\nURL: {url}\nСодержимое:\n{page_text}" if page_text else f"Источник: {title}\nURL: {url}")
+        results.append(f"{title} — {url}")
         if len(results) >= limit:
             break
-    return "\n\n---\n\n".join(results)
+    return "\n".join(results)
