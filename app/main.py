@@ -34,8 +34,8 @@ _news_monitor_thread = None
 _watch_task: asyncio.Task | None = None
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 _VOICE_REQUEST = re.compile(
-    r'(?i)\b(?:ответь|ответ|скажи|расскажи|произнеси|озвучь|запиши|напиши)\b.{0,80}\b(?:голосом|голосовое|голосовым|голосовухой|аудио)\b'
-    r'|\b(?:голосом|голосовое|голосовым|голосовухой|аудио)\b.{0,80}\b(?:ответь|скажи|расскажи|озвучь|запиши)\b'
+    r'(?i)\b(?:ответ(?:ь|ить)?|скажи|сказать|расскажи|рассказать|произнеси|произнести|озвучь|озвучить|запиши|записать|сделай|отправь|отправить)\b.{0,100}\b(?:голосом|голосовое|голосовым|голосовухой|войсом|войсов|аудио)\b'
+    r'|\b(?:голосом|голосовое|голосовым|голосовухой|войсом|войсов|аудио)\b.{0,100}\b(?:ответь|ответить|скажи|сказать|расскажи|рассказать|озвучь|озвучить|запиши|записать|сделай|отправь|отправить)\b'
 )
 
 
@@ -48,11 +48,11 @@ def _wants_voice(text: str) -> bool: return bool(_VOICE_REQUEST.search(text))
 def _strip_voice_request(text: str) -> str:
     """Remove an explicit voice-output instruction before sending the prompt to the AI."""
     cleaned = re.sub(
-        r'(?i)\s*(?:,|—|-)?\s*(?:ответь|скажи|расскажи|произнеси|озвучь|запиши)\s+(?:мне\s+)?(?:голосом|голосовое(?:\s+сообщение)?|голосовым(?:\s+сообщением)?|голосовухой|аудио)\s*',
+        r'(?i)\s*(?:,|—|-)?\s*(?:ответ(?:ь|ить)?|скажи|сказать|расскажи|рассказать|произнеси|произнести|озвучь|озвучить|запиши|записать|сделай|отправь|отправить)\s+(?:мне\s+)?(?:голосом|голосовое(?:\s+сообщение)?|голосовым(?:\s+сообщением)?|голосовухой|войсом|аудио)\s*',
         ' ', text,
     )
     cleaned = re.sub(
-        r'(?i)\s*(?:,|—|-)?\s*(?:голосом|голосовое(?:\s+сообщение)?|голосовым(?:\s+сообщением)?|голосовухой|аудио)\s+(?:ответь|скажи|расскажи|озвучь|запиши)\s*',
+        r'(?i)\s*(?:,|—|-)?\s*(?:голосом|голосовое(?:\s+сообщение)?|голосовым(?:\s+сообщением)?|голосовухой|войсом|аудио)\s+(?:ответь|ответить|скажи|сказать|расскажи|рассказать|озвучь|озвучить|запиши|записать|сделай|отправь|отправить)\s*',
         ' ', cleaned,
     )
     return re.sub(r'\s{2,}', ' ', cleaned).strip(' ,—-') or text
@@ -145,13 +145,16 @@ async def command_unwatch(message: Message):
 
 async def _send_voice_reply(message: Message, text: str) -> None:
     """Synthesize Alina's answer and send it as a Telegram voice message."""
-    audio = await ai.synthesize_speech(text)
+    logging.info('[TTS] starting voice reply: chars=%s', len(text))
+    audio = await asyncio.wait_for(ai.synthesize_speech(text), timeout=45)
+    logging.info('[TTS] audio generated: bytes=%s', len(audio))
     temp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(prefix="alina_", suffix=".ogg", delete=False) as tmp:
             tmp.write(audio)
             temp_path = Path(tmp.name)
         await message.answer_voice(FSInputFile(temp_path), reply_to_message_id=message.message_id)
+        logging.info('[TTS] voice sent successfully')
     finally:
         if temp_path:
             temp_path.unlink(missing_ok=True)
@@ -171,6 +174,7 @@ async def on_message(message: Message):
 
     wants_voice = _wants_voice(original_text)
     text = _strip_voice_request(original_text) if wants_voice else original_text
+    logging.info('[VOICE] request_detected=%s original=%r cleaned=%r', wants_voice, original_text, text)
     storage.add(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, 'user', text)
     try:
         answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
