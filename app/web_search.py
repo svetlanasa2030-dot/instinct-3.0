@@ -1,8 +1,11 @@
 import concurrent.futures
+import logging
 import re
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
+
+logger = logging.getLogger(__name__)
 
 
 class _BingParser(HTMLParser):
@@ -57,6 +60,7 @@ class _TextParser(HTMLParser):
 
 def _fetch_page(url: str, max_chars: int = 12000) -> str:
     try:
+        logger.debug("[CATS] HTTP GET %s", url)
         request = urllib.request.Request(
             url,
             headers={
@@ -67,14 +71,19 @@ def _fetch_page(url: str, max_chars: int = 12000) -> str:
         )
         with urllib.request.urlopen(request, timeout=15) as response:
             content_type = response.headers.get("Content-Type", "")
+            status = getattr(response, "status", 200)
+            logger.debug("[CATS] HTTP %s %s Content-Type=%s", status, url, content_type)
             if "text/html" not in content_type.lower():
+                logger.warning("[CATS] Non-HTML response: %s", content_type)
                 return ""
             data = response.read(2_000_000).decode("utf-8", "ignore")
         parser = _TextParser()
         parser.feed(data)
         text = " ".join(parser.parts)
+        logger.debug("[CATS] Parsed %s chars from %s", len(text), url)
         return text[:max_chars]
-    except Exception:
+    except Exception as exc:
+        logger.warning("[CATS] HTTP ERROR %s: %s", url, exc)
         return ""
 
 
@@ -96,65 +105,102 @@ def _query_words(query: str) -> list[str]:
 
 def _normalize_item_query(query: str) -> str:
     words = _query_words(query)
-    # Keep the order from the user's request, but remove words that describe
-    # the action rather than the item itself.
     return " ".join(words).strip()
 
 
+def _extract_item_urls(html: str) -> list[str]:
+    """Extract item URLs even when Bing changes its result markup."""
+    urls = re.findall(r"https?://(?:www\.)?comeback\.pw/db/146/item/\d+", html, flags=re.I)
+    result = []
+    seen = set()
+    for url in urls:
+        clean = url.rstrip("/&?.,\")'\\")
+        if clean not in seen:
+            seen.add(clean)
+            result.append(clean)
+    return result
+
+
 def _find_item_id(query: str) -> tuple[int | None, str]:
-    """Resolve a ComebackPW 1.4.6 item name to its database item_id.
-
-    The visible cat database uses item_id in its URL. The item selector on the
-    site is JavaScript-driven, so the bot cannot reliably reproduce the visual
-    autocomplete. Instead we resolve the exact 1.4.6 database item first and
-    then use the same item_id parameter as the cat database itself.
-    """
     item_query = _normalize_item_query(query)
+    logger.info("[CATS] Запрос: %s", query)
+    logger.info("[CATS] Нормализовано: %s", item_query)
     if not item_query:
+        logger.warning("[CATS] Не удалось выделить название предмета")
         return None, ""
 
-    search_url = "https://www.bing.com/search?" + urllib.parse.urlencode({
-        "q": f'site:comeback.pw/db/146/item/ "{item_query}"',
-        "count": 8,
-        "setlang": "ru",
-    })
-    try:
-        request = urllib.request.Request(
-            search_url,
-            headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept-Language": "ru,en;q=0.8",
-            },
-        )
-        with urllib.request.urlopen(request, timeout=12) as response:
-            data = response.read().decode("utf-8", "ignore")
-    except Exception:
-        return None, ""
+    # Bing markup changes from time to time. Run several equivalent searches
+    # and parse both structured h2 results and raw /db/146/item/<id> URLs.
+    variants = [
+        f'site:comeback.pw/db/146/item/ "{item_query}"',
+        f'site:comeback.pw/db/146/item/ "★{item_query}"',
+        f'site:comeback.pw/db/146/item/ {item_query}',
+    ]
+    candidates: list[str] = []
+    seen = set()
 
-    parser = _BingParser()
-    parser.feed(data)
+    for search_query in variants:
+        search_url = "https://www.bing.com/search?" + urllib.parse.urlencode({
+            "q": search_query,
+            "count": 10,
+            "setlang": "ru",
+        })
+        logger.info("[CATS] Поиск ID предмета: %s", search_url)
+        try:
+            request = urllib.request.Request(
+                search_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept-Language": "ru,en;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=12) as response:
+                data = response.read().decode("utf-8", "ignore")
+        except Exception as exc:
+            logger.warning("[CATS] Ошибка Bing: %s", exc)
+            continue
+
+        parser = _BingParser()
+        parser.feed(data)
+        raw_urls = _extract_item_urls(data)
+        structured_urls = [url for _, url in parser.results]
+        for url in structured_urls + raw_urls:
+            match = re.search(r"/db/146/item/(\d+)", url)
+            if not match:
+                continue
+            normalized_url = f"https://comeback.pw/db/146/item/{match.group(1)}"
+            if normalized_url not in seen:
+                seen.add(normalized_url)
+                candidates.append(normalized_url)
+        logger.info("[CATS] Bing результатов=%s, кандидатов URL=%s", len(parser.results), len(candidates))
+
+        if candidates:
+            # One successful search is normally enough; keep the variants only
+            # when the first one returned no indexed item URLs.
+            break
 
     wanted = [w for w in re.findall(r"[\wа-яА-ЯёЁ-]{2,}", item_query.lower()) if len(w) >= 3]
-    for title, url in parser.results:
-        match = re.search(r"/db/146/item/(\d+)", url)
-        if not match:
-            continue
-        item_id = int(match.group(1))
-        page_text = _fetch_page(url, max_chars=6000)
+    wanted_norm = " ".join(wanted)
+
+    scored = []
+    for url in candidates:
+        item_id = int(re.search(r"/item/(\d+)", url).group(1))
+        page_text = _fetch_page(url, max_chars=5000)
         normalized = page_text.lower()
-        if wanted and all(word in normalized for word in wanted):
-            return item_id, url
-
-    # If Bing's result title itself contains the complete item name, accept it
-    # even when the item page blocks a secondary fetch.
-    for title, url in parser.results:
-        match = re.search(r"/db/146/item/(\d+)", url)
-        if not match:
+        if not wanted or not all(word in normalized for word in wanted):
             continue
-        title_norm = title.lower()
-        if wanted and sum(word in title_norm for word in wanted) >= max(1, len(wanted) - 1):
-            return int(match.group(1)), url
+        # Prefer pages where the item name occurs close to the beginning.
+        position = normalized.find(wanted[0]) if wanted else 999999
+        score = sum(word in normalized[:1800] for word in wanted) * 100 - max(position, 0)
+        scored.append((score, item_id, url, page_text[:500]))
 
+    if scored:
+        scored.sort(reverse=True)
+        _, item_id, url, preview = scored[0]
+        logger.info("[CATS] ID предмета подтвержден: %s | %s", item_id, preview[:180])
+        return item_id, url
+
+    logger.warning("[CATS] ID предмета не найден: %s", wanted_norm)
     return None, ""
 
 
@@ -163,17 +209,9 @@ def _find_matches(page: int, query_words: list[str]) -> str:
     text = _fetch_page(url)
     if not text:
         return ""
-
     normalized = text.lower()
-    if not query_words:
+    if not query_words or not all(word in normalized for word in query_words):
         return ""
-
-    # Require all significant item words on a page. This prevents a query such
-    # as "тяжелые латы тигриного рева" from matching unrelated rows containing
-    # only the generic word "тяжелые".
-    if not all(word in normalized for word in query_words):
-        return ""
-
     fragments = []
     used_ranges = []
     for word in query_words:
@@ -192,10 +230,8 @@ def _find_matches(page: int, query_words: list[str]) -> str:
                 break
         if len(fragments) >= 5:
             break
-
     if not fragments:
         return ""
-
     return (
         f"Источник: ComebackPW — категория 146, страница {page}\n"
         f"URL: {url}\n"
@@ -205,17 +241,21 @@ def _find_matches(page: int, query_words: list[str]) -> str:
 
 
 def _search_cat_by_item_id(item_id: int, item_url: str = "") -> str:
-    """Use the cat database's real item_id filter instead of scanning pages."""
     url = COMEBACK_CATS_BASE + "?item_id=" + str(item_id)
+    logger.info("[CATS] Запрос базы котов: %s", url)
     text = _fetch_page(url, max_chars=16000)
     if not text:
+        logger.warning("[CATS] База котов вернула пустой результат для ID=%s", item_id)
         return ""
 
-    # A filtered result contains the selected item name and the seller rows.
-    # Keep the full filtered page because it is already much smaller than the
-    # 397-page unfiltered database.
+    no_listings = "ничего не найдено" in text.lower()
+    logger.info(
+        "[CATS] База котов получена для ID=%s, %s chars, listings=%s",
+        item_id, len(text), not no_listings,
+    )
     return (
         f"Источник: ComebackPW — База котов 1.4.6\n"
+        f"Статус базы: {'NO_LISTINGS' if no_listings else 'LISTINGS_FOUND'}\n"
         f"Предмет ID: {item_id}\n"
         f"URL: {url}\n"
         f"Страница предмета в DB: {item_url}\n"
@@ -224,39 +264,35 @@ def _search_cat_by_item_id(item_id: int, item_url: str = "") -> str:
 
 
 def search_comeback_cats(query: str, max_pages: int = COMEBACK_CATS_PAGES, max_workers: int = 12) -> str:
-    """Search ComebackPW 1.4.6 cats using the site's item_id filter first."""
     query = query.strip()
     if not query:
         return ""
 
-    # Preferred path: resolve the exact item in the 1.4.6 database, then call
-    # /cats/146/?item_id=<ID>. This is the same filter used by the website and
-    # does not depend on reading item names from image alt text.
+    logger.info("[CATS] ===== START SEARCH =====")
     item_id, item_url = _find_item_id(query)
     if item_id is not None:
         result = _search_cat_by_item_id(item_id, item_url)
         if result:
+            logger.info("[CATS] ===== SUCCESS ID=%s =====", item_id)
             return result
+        logger.warning("[CATS] Фильтр item_id не дал результата, запускаю fallback")
 
-    # Fallback for items that are not indexed by the public database search.
     words = _query_words(query)
     if not words:
         return ""
-
+    logger.info("[CATS] Fallback: поиск по страницам, pages=%s workers=%s words=%s", min(max_pages, COMEBACK_CATS_PAGES), max_workers, words)
     pages = range(1, min(max_pages, COMEBACK_CATS_PAGES) + 1)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         results = list(pool.map(lambda page: _find_matches(page, words), pages))
-
     matches = [result for result in results if result]
+    logger.info("[CATS] Fallback найдено страниц: %s", len(matches))
     return "\n\n---\n\n".join(matches[:12])
 
 
 def search_web(query: str, limit: int = 5) -> str:
-    """Search the public web with Bing and read the relevant pages."""
     query = query.strip()
     if not query:
         return ""
-
     search_url = "https://www.bing.com/search?" + urllib.parse.urlencode({
         "q": query,
         "count": min(max(limit, 1), 8),
@@ -269,13 +305,10 @@ def search_web(query: str, limit: int = 5) -> str:
             "Accept-Language": "ru,en;q=0.8",
         },
     )
-
     with urllib.request.urlopen(request, timeout=12) as response:
         data = response.read().decode("utf-8", "ignore")
-
     parser = _BingParser()
     parser.feed(data)
-
     results = []
     seen = set()
     for title, url in parser.results:
@@ -290,5 +323,4 @@ def search_web(query: str, limit: int = 5) -> str:
             results.append(f"Источник: {title}\nURL: {url}")
         if len(results) >= limit:
             break
-
     return "\n\n---\n\n".join(results)
