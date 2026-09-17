@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import re
+import tempfile
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import FSInputFile, Message
 
 from app.ai import AIEngine
 from app.config import load_settings
@@ -38,16 +40,11 @@ def _addressed_to_alina(text: str) -> bool: return bool(_NAME_ADDRESS.search(tex
 
 def _strip_urls(text: str) -> str:
     """Remove URLs and link/image targets from Alina's Telegram replies."""
-    # Markdown links: [visible text](https://example.com) -> visible text.
     text = re.sub(r'\[([^\]]+)\]\(\s*<?https?://[^)>]+>?\s*\)', r'\1', text)
-    # Telegram/Markdown autolinks: <https://example.com> or [https://example.com].
     text = re.sub(r'<https?://[^>]+>', '', text)
     text = re.sub(r'\[\s*https?://[^\]]+\s*\]', '', text)
-    # Bare URLs, including web.telegram.org emoji image URLs.
     text = re.sub(r'https?://[^\s)\]>]+', '', text)
-    # Remove markdown image syntax while preserving alt text.
     text = re.sub(r'!\[([^\]]*)\]\(\s*\)', r'\1', text)
-    # Clean empty parentheses/brackets left by removed links.
     text = re.sub(r'\(\s*\)', '', text)
     text = re.sub(r'\[\s*\]', '', text)
     text = re.sub(r'[ \t]{2,}', ' ', text)
@@ -126,6 +123,20 @@ async def command_unwatch(message: Message):
     await message.answer('🗑 Наблюдение удалено.' if ok else 'Не нашла такое наблюдение.')
 
 
+async def _send_voice_reply(message: Message, text: str) -> None:
+    """Synthesize Alina's answer and send it as a Telegram voice message."""
+    audio = await ai.synthesize_speech(text)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="alina_", suffix=".ogg", delete=False) as tmp:
+            tmp.write(audio)
+            temp_path = Path(tmp.name)
+        await message.answer_voice(FSInputFile(temp_path))
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
+
+
 @dp.message(F.text)
 async def on_message(message: Message):
     global _bot_id
@@ -141,7 +152,11 @@ async def on_message(message: Message):
     try:
         answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
         if not answer: return
-        await message.answer(answer, reply_to_message_id=message.message_id)
+        try:
+            await _send_voice_reply(message, answer)
+        except Exception as voice_exc:
+            logging.exception('Failed to generate/send voice reply, falling back to text: %s', voice_exc)
+            await message.answer(answer, reply_to_message_id=message.message_id)
         storage.add(message.chat.id, None, None, 'assistant', answer)
     except Exception as exc:
         logging.exception('Failed to generate/send answer: %s', exc)
