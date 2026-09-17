@@ -35,14 +35,40 @@ class _BingParser(HTMLParser):
 
 
 class _TextParser(HTMLParser):
+    """Extract visible text plus item names stored in image/tooltips."""
+
     def __init__(self):
         super().__init__()
         self.parts = []
         self.skip = 0
 
     def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
         if tag in {"script", "style", "noscript", "svg"}:
             self.skip += 1
+            return
+
+        # In the ComebackPW 1.4.6 cat database item names are displayed as
+        # icons. The text name is commonly stored in an img tooltip/title,
+        # alt text, data-title or similar attribute, so a text-only parser
+        # misses the actual item completely. Preserve those attributes in the
+        # same document position as the image; the surrounding seller/price/
+        # coordinate text then remains close to the matched item.
+        if tag == "img" and not self.skip:
+            for key in (
+                "title",
+                "alt",
+                "data-title",
+                "data-original-title",
+                "data-tooltip",
+                "data-item-name",
+                "aria-label",
+            ):
+                value = attrs.get(key, "")
+                if value:
+                    text = re.sub(r"\s+", " ", value).strip()
+                    if text:
+                        self.parts.append(text)
 
     def handle_endtag(self, tag):
         if tag in {"script", "style", "noscript", "svg"} and self.skip:
@@ -84,11 +110,9 @@ COMEBACK_CATS_PAGES = 410
 
 def _query_words(query: str) -> list[str]:
     words = re.findall(r"[\wа-яА-ЯёЁ-]{2,}", query.lower())
-    # Remove common Russian request words. They do not help find a cat row
-    # and otherwise produce many false-positive pages.
     stop_words = {
         "где", "найти", "найди", "есть", "мне", "нужен", "нужна", "нужно",
-        "можно", "можно", "как", "какой", "какая", "какие", "покажи", "покажите",
+        "можно", "как", "какой", "какая", "какие", "покажи", "покажите",
         "координаты", "координата", "кот", "кота", "коте", "котом", "локация",
         "место", "месте", "цена", "стоимость", "продажа", "покупка",
     }
@@ -105,13 +129,16 @@ def _find_matches(page: int, query_words: list[str]) -> str:
     if not query_words:
         return ""
 
-    hits = [word for word in query_words if word in normalized]
-    if not hits:
+    # Prefer exact/complete matches. For multi-word item names require all
+    # meaningful words on the same page; this prevents a generic word such as
+    # "тяжелые" from returning unrelated rows.
+    phrase = " ".join(query_words)
+    all_hits = all(word in normalized for word in query_words)
+    phrase_hit = phrase in normalized
+    if not all_hits and not phrase_hit:
         return ""
 
-    # Return focused fragments instead of the whole page. This keeps the AI
-    # context small while preserving the NPC/player, prices and coordinates
-    # located near the matching cat name.
+    hits = query_words if all_hits else [phrase]
     fragments = []
     used_ranges = []
     for word in hits:
@@ -120,8 +147,8 @@ def _find_matches(page: int, query_words: list[str]) -> str:
             pos = normalized.find(word, start)
             if pos < 0:
                 break
-            left = max(0, pos - 700)
-            right = min(len(text), pos + 1500)
+            left = max(0, pos - 900)
+            right = min(len(text), pos + 1800)
             if not any(left < old_right and right > old_left for old_left, old_right in used_ranges):
                 fragments.append(text[left:right].strip())
                 used_ranges.append((left, right))
@@ -135,15 +162,15 @@ def _find_matches(page: int, query_words: list[str]) -> str:
         return ""
 
     return (
-        f"Источник: ComebackPW — категория 146, страница {page}\n"
+        f"Источник: ComebackPW — База котов 1.4.6, страница {page}\n"
         f"URL: {url}\n"
-        f"Совпадения: {', '.join(sorted(set(hits)))}\n"
+        f"Совпадение предмета: {', '.join(sorted(set(hits)))}\n"
         f"Фрагменты:\n" + "\n---\n".join(fragments)
     )
 
 
 def search_comeback_cats(query: str, max_pages: int = COMEBACK_CATS_PAGES, max_workers: int = 12) -> str:
-    """Search all 410 pages of the ComebackPW cat database in parallel."""
+    """Search the ComebackPW 1.4.6 cat database, including icon tooltips."""
     query = query.strip()
     if not query:
         return ""
@@ -152,8 +179,6 @@ def search_comeback_cats(query: str, max_pages: int = COMEBACK_CATS_PAGES, max_w
     if not words:
         return ""
 
-    # The database currently has 410 pages. Fetch pages concurrently so a
-    # search does not wait for 410 sequential network requests.
     pages = range(1, min(max_pages, COMEBACK_CATS_PAGES) + 1)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         results = list(pool.map(lambda page: _find_matches(page, words), pages))
