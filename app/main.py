@@ -10,18 +10,17 @@ from app.config import load_settings
 from app.storage import Storage
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
+from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
     run_news_monitor_in_thread = None
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 settings = load_settings()
 storage = Storage(settings.db_path)
+init_game_features(settings.db_path)
 ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
 dp = Dispatcher()
 dp.include_router(knowledge_router)
@@ -30,8 +29,8 @@ _bot_id: int | None = None
 _polling_loop: asyncio.AbstractEventLoop | None = None
 _polling_task: asyncio.Task | None = None
 _knowledge_sync_task: asyncio.Task | None = None
-_news_monitor_task: asyncio.Task | None = None
 _news_monitor_thread = None
+_watch_task: asyncio.Task | None = None
 
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
@@ -41,7 +40,6 @@ def _addressed_to_alina(text: str) -> bool:
 
 
 def _strip_urls(text: str) -> str:
-    """Remove web links from Alina's Telegram replies while keeping link text."""
     text = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', text)
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'[ \t]{2,}', ' ', text)
@@ -53,109 +51,113 @@ def _is_allowed_chat(message: Message) -> bool:
     return message.chat.id == settings.group_chat_id
 
 
+def _parse_watch_command(text: str):
+    # /watch предмет [до цена]
+    body = re.sub(r'^/watch(?:@\w+)?\s*', '', text, flags=re.I).strip()
+    if not body:
+        return None, None
+    match = re.search(r'\s+(?:до|дешевле|не дороже)\s+([\d\s.,]+)\s*$', body, re.I)
+    if match:
+        digits = re.sub(r'\D', '', match.group(1))
+        return body[:match.start()].strip(), int(digits) if digits else None
+    return body, None
+
+
 @dp.message(F.text.startswith("/start"))
 async def command_start(message: Message):
-    if not _is_allowed_chat(message):
-        return
+    if not _is_allowed_chat(message): return
     storage.set_chat_enabled(message.chat.id, True)
     await message.answer("🟢 Бот запущен. Теперь отвечаю на сообщения.")
 
 
 @dp.message(F.text.startswith("/stop"))
 async def command_stop(message: Message):
-    if not _is_allowed_chat(message):
-        return
+    if not _is_allowed_chat(message): return
     storage.set_chat_enabled(message.chat.id, False)
     await message.answer("🔴 Бот остановлен. Команду /start можно использовать для запуска.")
 
 
 @dp.message(F.text.startswith("/status"))
 async def command_status(message: Message):
-    if not _is_allowed_chat(message):
-        return
+    if not _is_allowed_chat(message): return
     enabled = storage.is_chat_enabled(message.chat.id)
-    status = "🟢 запущен" if enabled else "🔴 остановлен"
-    await message.answer(f"Статус бота: {status}.")
+    await message.answer(f"Статус бота: {'🟢 запущен' if enabled else '🔴 остановлен'}.")
+
+
+@dp.message(F.text.startswith("/watch"))
+async def command_watch(message: Message):
+    if not _is_allowed_chat(message): return
+    item, max_price = _parse_watch_command(message.text or '')
+    if not item:
+        await message.answer("Формат: /watch предмет [до 4 000 000]")
+        return
+    watch_id = add_watch(settings.db_path, message.chat.id, message.from_user.id if message.from_user else None, item, max_price)
+    limit = f" до {max_price:,}".replace(',', ' ') if max_price else ''
+    await message.answer(f"🔔 Поставила на контроль №{watch_id}: {item}{limit}\nНапишу, когда появится подходящее предложение или цена снизится.")
+
+
+@dp.message(F.text.startswith("/watches"))
+async def command_watches(message: Message):
+    if not _is_allowed_chat(message): return
+    rows = list_watches(settings.db_path, message.chat.id)
+    if not rows:
+        await message.answer("Активных наблюдений нет.")
+        return
+    lines = ["🔔 Твои наблюдения:"]
+    for watch_id, item, max_price in rows:
+        limit = f" ≤ {max_price:,}".replace(',', ' ') if max_price else ''
+        lines.append(f"#{watch_id} — {item}{limit}")
+    lines.append("\nУдалить: /unwatch ID")
+    await message.answer('\n'.join(lines))
+
+
+@dp.message(F.text.startswith("/unwatch"))
+async def command_unwatch(message: Message):
+    if not _is_allowed_chat(message): return
+    match = re.search(r'^/unwatch(?:@\w+)?\s+(\d+)', message.text or '', re.I)
+    if not match:
+        await message.answer("Формат: /unwatch ID")
+        return
+    ok = remove_watch(settings.db_path, message.chat.id, int(match.group(1)))
+    await message.answer("🗑 Наблюдение удалено." if ok else "Не нашла такое наблюдение.")
 
 
 @dp.message(F.text)
 async def on_message(message: Message):
     global _bot_id
-
-    logging.info(
-        "Telegram message received: chat_id=%s from=%s text=%r",
-        message.chat.id,
-        message.from_user.id if message.from_user else None,
-        message.text,
-    )
-
-    if not _is_allowed_chat(message):
-        logging.info(
-            "Ignored message: chat_id=%s, expected=%s",
-            message.chat.id,
-            settings.group_chat_id,
-        )
-        return
-
-    text = (message.text or "").strip()
-    if not text:
-        return
-
-    if _bot_id is not None and message.from_user and message.from_user.id == _bot_id:
-        return
-
-    if text.split()[0].split("@")[0].lower() in {"/start", "/stop", "/status"}:
-        return
-
-    if not storage.is_chat_enabled(message.chat.id):
-        logging.info("Bot is stopped for chat_id=%s; message ignored", message.chat.id)
-        return
+    logging.info("Telegram message received: chat_id=%s from=%s text=%r", message.chat.id, message.from_user.id if message.from_user else None, message.text)
+    if not _is_allowed_chat(message): return
+    text = (message.text or '').strip()
+    if not text: return
+    if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
+    if text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/watch','/watches','/unwatch'}: return
+    if not storage.is_chat_enabled(message.chat.id): return
 
     is_reply_to_alina = False
     if message.reply_to_message is not None:
         replied_from = message.reply_to_message.from_user
         is_reply_to_alina = replied_from is not None and replied_from.id == _bot_id
-
-    if not _addressed_to_alina(text) and not is_reply_to_alina:
-        logging.info("Ignored message: no direct address to Alina and not a reply to her")
-        return
+    if not _addressed_to_alina(text) and not is_reply_to_alina: return
 
     username = message.from_user.username if message.from_user else None
     user_id = message.from_user.id if message.from_user else None
-    storage.add(message.chat.id, user_id, username, "user", text)
-
-    logging.info("Sending message to OpenAI: model=%s", ai.model)
-
+    storage.add(message.chat.id, user_id, username, 'user', text)
     try:
         answer = await ai.decide_and_answer(message.chat.id, text)
-
-        if not answer:
-            logging.info("OpenAI returned NO_REPLY")
-            return
-
-        # Never expose web-search links/citations in Telegram replies.
+        if not answer: return
         answer = _strip_urls(answer)
-        if not answer:
-            logging.info("Answer became empty after URL removal")
-            return
-
+        if not answer: return
         await message.answer(answer, reply_to_message_id=message.message_id)
-        storage.add(message.chat.id, None, None, "assistant", answer)
-        logging.info("Telegram reply sent successfully")
-
+        storage.add(message.chat.id, None, None, 'assistant', answer)
     except Exception as exc:
         logging.exception("Failed to generate/send answer: %s", exc)
 
 
 async def _sync_forum_forever():
-    """Keep the configured forum/site index updated in the background."""
-    global _knowledge_sync_task
     while True:
         try:
             sources = [x.strip() for x in settings.knowledge_sources.splitlines() if x.strip()]
-            if sources:
-                await asyncio.to_thread(collect_sources, sources, 20000)
-                logging.info("Knowledge sources synchronized: %s", sources)
+            if sources: await asyncio.to_thread(collect_sources, sources, 20000)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -163,69 +165,44 @@ async def _sync_forum_forever():
         await asyncio.sleep(settings.knowledge_refresh_minutes * 60)
 
 
+async def _watch_forever(bot: Bot):
+    while True:
+        try:
+            await asyncio.to_thread(check_watches, settings.db_path, lambda chat_id, text: asyncio.run_coroutine_threadsafe(bot.send_message(chat_id, text), asyncio.get_running_loop()).result())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.exception("Watch synchronization failed: %s", exc)
+        await asyncio.sleep(15 * 60)
+
+
 def request_stop():
-    """Request polling shutdown from the GUI thread."""
     global _polling_loop, _polling_task
     if _polling_loop and _polling_task and not _polling_task.done():
         _polling_loop.call_soon_threadsafe(_polling_task.cancel)
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_task, _news_monitor_thread
-
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
     me = await bot.get_me()
     _bot_id = me.id
-
-    logging.info(
-        "Telegram bot started: @%s | id=%s | can_read_all_group_messages=%s",
-        me.username,
-        me.id,
-        me.can_read_all_group_messages,
-    )
-
-    if not me.can_read_all_group_messages:
-        logging.warning(
-            "Telegram Privacy Mode is enabled. "
-            "The bot will NOT receive ordinary group messages. "
-            "Disable Group Privacy in BotFather or make the bot an administrator."
-        )
-
     await bot.delete_webhook(drop_pending_updates=False)
-
-    logging.info(
-        "Polling started. Waiting for messages in group %s",
-        settings.group_chat_id,
-    )
-
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
+    _watch_task = asyncio.create_task(_watch_forever(bot))
     if run_news_monitor_in_thread is not None:
         import threading
-        _news_monitor_thread = threading.Thread(
-            target=run_news_monitor_in_thread,
-            name="telegram-news-monitor",
-            daemon=True,
-        )
+        _news_monitor_thread = threading.Thread(target=run_news_monitor_in_thread, name='telegram-news-monitor', daemon=True)
         _news_monitor_thread.start()
-        logging.info("Telegram news monitor thread started")
-    else:
-        _news_monitor_thread = None
-        logging.warning("News monitor unavailable: install dependencies from requirements.txt")
-
     try:
         _polling_task = asyncio.current_task()
-        await dp.start_polling(
-            bot,
-            allowed_updates=dp.resolve_used_update_types(),
-        )
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        if _knowledge_sync_task and not _knowledge_sync_task.done():
-            _knowledge_sync_task.cancel()
-        if _news_monitor_task and not _news_monitor_task.done():
-            _news_monitor_task.cancel()
+        for task in (_knowledge_sync_task, _watch_task):
+            if task and not task.done(): task.cancel()
         await bot.session.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
