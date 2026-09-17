@@ -59,7 +59,7 @@ class _TextParser(HTMLParser):
 
 
 class _TableParser(HTMLParser):
-    """Extract HTML table rows without losing seller/price/coords relationships."""
+    """Extract real HTML table rows when the site renders them as tables."""
     def __init__(self):
         super().__init__()
         self.tables = []
@@ -89,8 +89,7 @@ class _TableParser(HTMLParser):
         if self._skip:
             return
         if tag in {"td", "th"} and self._cell is not None and self._row is not None:
-            value = re.sub(r"\s+", " ", "".join(self._cell)).strip()
-            self._row.append(value)
+            self._row.append(re.sub(r"\s+", " ", "".join(self._cell)).strip())
             self._cell = None
         elif tag == "tr" and self._row is not None and self._table is not None:
             if any(self._row):
@@ -106,33 +105,9 @@ class _TableParser(HTMLParser):
             self._cell.append(data)
 
 
-class _HeadingParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.headings = []
-        self._active = False
-        self._parts = []
-
-    def handle_starttag(self, tag, attrs):
-        if tag in {"h1", "h2", "title"}:
-            self._active = True
-            self._parts = []
-
-    def handle_endtag(self, tag):
-        if tag in {"h1", "h2", "title"} and self._active:
-            text = re.sub(r"\s+", " ", "".join(self._parts)).strip()
-            if text:
-                self.headings.append(text)
-            self._active = False
-
-    def handle_data(self, data):
-        if self._active:
-            self._parts.append(data)
-
-
 def _fetch_html(url: str) -> str:
     try:
-        logger.debug("[CATS] HTTP GET %s", url)
+        logger.info("[CATS] HTTP GET %s", url)
         request = urllib.request.Request(
             url,
             headers={
@@ -144,9 +119,8 @@ def _fetch_html(url: str) -> str:
         with urllib.request.urlopen(request, timeout=15) as response:
             content_type = response.headers.get("Content-Type", "")
             status = getattr(response, "status", 200)
-            logger.debug("[CATS] HTTP %s %s Content-Type=%s", status, url, content_type)
+            logger.info("[CATS] HTTP %s %s Content-Type=%s", status, url, content_type)
             if "text/html" not in content_type.lower():
-                logger.warning("[CATS] Non-HTML response: %s", content_type)
                 return ""
             return response.read(2_000_000).decode("utf-8", "ignore")
     except Exception as exc:
@@ -160,9 +134,7 @@ def _fetch_page(url: str, max_chars: int = 12000) -> str:
         return ""
     parser = _TextParser()
     parser.feed(data)
-    text = " ".join(parser.parts)
-    logger.debug("[CATS] Parsed %s chars from %s", len(text), url)
-    return text[:max_chars]
+    return " ".join(parser.parts)[:max_chars]
 
 
 COMEBACK_CATS_BASE = "https://comeback.pw/cats/146/"
@@ -176,7 +148,7 @@ def _query_words(query: str) -> list[str]:
         "можно", "как", "какой", "какая", "какие", "покажи", "покажите",
         "координаты", "координата", "кот", "кота", "коте", "котом", "локация",
         "место", "месте", "цена", "стоимость", "продажа", "покупка", "купить",
-        "продать", "продается", "продаётся", "продают", "продается",
+        "продать", "продается", "продаётся", "продают", "продаётся",
     }
     return [w for w in words if w not in stop_words]
 
@@ -202,10 +174,23 @@ def _extract_item_urls(html: str) -> list[str]:
     return result
 
 
+def _item_page_matches(html: str, item_query: str) -> tuple[bool, int]:
+    parser = _TextParser()
+    parser.feed(html)
+    text = " ".join(parser.parts)
+    wanted = _normalize_name(item_query)
+    normalized = _normalize_name(text)
+    if not wanted or wanted not in normalized:
+        return False, -1
+    # The real item name is near the beginning of its DB page. Reject pages
+    # where the name appears only deep inside a recipe/drop list.
+    position = normalized.find(wanted)
+    return position >= 0 and position < 2500, position
+
+
 def _find_item_id(query: str) -> tuple[int | None, str]:
     item_query = _normalize_item_query(query)
-    logger.info("[CATS] Запрос: %s", query)
-    logger.info("[CATS] Нормализовано: %s", item_query)
+    logger.info("[CATS] Запрос предмета: %s | normalized=%s", query, item_query)
     if not item_query:
         return None, ""
 
@@ -222,7 +207,7 @@ def _find_item_id(query: str) -> tuple[int | None, str]:
             with urllib.request.urlopen(request, timeout=12) as response:
                 data = response.read().decode("utf-8", "ignore")
         except Exception as exc:
-            logger.warning("[CATS] Ошибка Bing: %s", exc)
+            logger.warning("[CATS] Bing ERROR: %s", exc)
             continue
         parser = _BingParser()
         parser.feed(data)
@@ -237,7 +222,6 @@ def _find_item_id(query: str) -> tuple[int | None, str]:
         if candidates:
             break
 
-    wanted = _normalize_name(item_query)
     scored = []
     for url in candidates:
         match = re.search(r"/item/(\d+)", url)
@@ -247,22 +231,18 @@ def _find_item_id(query: str) -> tuple[int | None, str]:
         html = _fetch_html(url)
         if not html:
             continue
-        hp = _HeadingParser()
-        hp.feed(html)
-        headings = [_normalize_name(x) for x in hp.headings]
-        exact_heading = any(h == wanted or wanted in h for h in headings)
-        if not exact_heading:
-            logger.debug("[CATS] Отклонен кандидат %s: название не в заголовке", item_id)
-            continue
-        score = max((1000 if h == wanted else 500 for h in headings), default=0)
-        scored.append((score, item_id, url, headings[:3]))
+        ok, position = _item_page_matches(html, item_query)
+        logger.info("[CATS] Candidate ID=%s match=%s position=%s", item_id, ok, position)
+        if ok:
+            scored.append((100000 - position, item_id, url))
 
     if scored:
         scored.sort(reverse=True)
-        _, item_id, url, headings = scored[0]
-        logger.info("[CATS] ID предмета подтвержден: %s | headings=%s", item_id, headings)
+        _, item_id, url = scored[0]
+        logger.info("[CATS] ID предмета подтвержден: %s | %s", item_id, url)
         return item_id, url
-    logger.warning("[CATS] ID предмета не найден: %s", wanted)
+
+    logger.warning("[CATS] ID предмета не найден: %s", item_query)
     return None, ""
 
 
@@ -295,34 +275,42 @@ def _format_cat_rows(rows: list[list[str]]) -> str:
             if any(name in cell for name in names):
                 indexes[key] = i
                 break
-
-    # Some pages have an extra leading column, so use the known header order as fallback.
     if not indexes and len(rows[0]) >= 5:
         indexes = {"player": 0, "cat": 1, "sale": 2, "buy": 3, "coords": 4}
 
     out = []
     for row in rows[1:]:
-        if not any(row):
-            continue
         values = {key: row[i].strip() if i < len(row) else "" for key, i in indexes.items()}
-        if not any(values.values()):
-            continue
-        out.append(
-            "Игрок: {player} | Кот: {cat} | Продажа: {sale} | Покупка: {buy} | Координаты: {coords}".format(
-                player=values.get("player", ""), cat=values.get("cat", ""),
-                sale=values.get("sale", ""), buy=values.get("buy", ""),
-                coords=values.get("coords", ""),
+        if any(values.values()):
+            out.append(
+                "Игрок: {player} | Кот: {cat} | Продажа: {sale} | Покупка: {buy} | Координаты: {coords}".format(
+                    player=values.get("player", ""), cat=values.get("cat", ""),
+                    sale=values.get("sale", ""), buy=values.get("buy", ""),
+                    coords=values.get("coords", ""),
+                )
             )
-        )
     return "\n".join(out)
 
 
-def _search_cat_by_item_id(item_id: int, item_url: str = "") -> str:
+def _focused_listing_context(text: str, item_query: str) -> str:
+    """Keep the seller row context even when the catbase uses divs instead of <table>."""
+    normalized_text = _normalize_name(text)
+    wanted = _normalize_name(item_query)
+    position = normalized_text.find(wanted)
+    if position < 0:
+        return ""
+    # Normalized text loses exact spacing, but gives a stable local window.
+    left = max(0, position - 220)
+    right = min(len(normalized_text), position + 900)
+    return normalized_text[left:right]
+
+
+def _search_cat_by_item_id(item_id: int, item_url: str = "", item_query: str = "") -> str:
     url = COMEBACK_CATS_BASE + "?item_id=" + str(item_id)
     logger.info("[CATS] Запрос базы котов: %s", url)
     html = _fetch_html(url)
     if not html:
-        logger.warning("[CATS] База котов вернула пустой результат для ID=%s", item_id)
+        logger.warning("[CATS] Пустой ответ базы котов для ID=%s", item_id)
         return ""
 
     text_parser = _TextParser()
@@ -330,20 +318,29 @@ def _search_cat_by_item_id(item_id: int, item_url: str = "") -> str:
     text = " ".join(text_parser.parts)
     rows = _extract_cat_rows(html)
     structured = _format_cat_rows(rows)
+    focused = _focused_listing_context(text, item_query) if item_query else ""
 
-    no_listings_text = any(x in text.lower() for x in ("ничего не найдено", "объявлений не найдено", "нет объявлений"))
+    lower = text.lower()
+    no_listings_text = any(x in lower for x in ("ничего не найдено", "объявлений не найдено", "нет объявлений"))
+    has_item = bool(item_query and _normalize_name(item_query) in _normalize_name(text))
     has_rows = bool(structured)
-    no_listings = no_listings_text or not has_rows
-    logger.info("[CATS] ID=%s chars=%s table_rows=%s listings=%s", item_id, len(text), len(rows), has_rows)
+    listings_found = bool(has_rows or (has_item and not no_listings_text))
 
-    if has_rows:
+    logger.info(
+        "[CATS] ID=%s chars=%s table_rows=%s has_item=%s listings=%s",
+        item_id, len(text), len(rows), has_item, listings_found,
+    )
+
+    if structured:
         listings = structured
+    elif focused:
+        listings = "Контекст строки объявления:\n" + focused
     else:
         listings = text[:16000]
 
     return (
         "Источник: ComebackPW — База котов 1.4.6\n"
-        f"Статус базы: {'LISTINGS_FOUND' if has_rows else 'NO_LISTINGS'}\n"
+        f"Статус базы: {'LISTINGS_FOUND' if listings_found else 'NO_LISTINGS'}\n"
         f"Предмет ID: {item_id}\n"
         f"URL: {url}\n"
         f"Страница предмета в DB: {item_url}\n"
@@ -379,7 +376,12 @@ def _find_matches(page: int, query_words: list[str]) -> str:
             break
     if not fragments:
         return ""
-    return f"Источник: ComebackPW — категория 146, страница {page}\nURL: {url}\nСовпадения: {', '.join(sorted(set(query_words)))}\nФрагменты:\n" + "\n---\n".join(fragments)
+    return (
+        f"Источник: ComebackPW — категория 146, страница {page}\n"
+        f"URL: {url}\n"
+        f"Совпадения: {', '.join(sorted(set(query_words)))}\n"
+        f"Фрагменты:\n" + "\n---\n".join(fragments)
+    )
 
 
 def search_comeback_cats(query: str, max_pages: int = COMEBACK_CATS_PAGES, max_workers: int = 12) -> str:
@@ -389,16 +391,14 @@ def search_comeback_cats(query: str, max_pages: int = COMEBACK_CATS_PAGES, max_w
     logger.info("[CATS] ===== START SEARCH =====")
     item_id, item_url = _find_item_id(query)
     if item_id is not None:
-        result = _search_cat_by_item_id(item_id, item_url)
+        result = _search_cat_by_item_id(item_id, item_url, _normalize_item_query(query))
         if result:
             logger.info("[CATS] ===== SUCCESS ID=%s =====", item_id)
             return result
-        logger.warning("[CATS] Фильтр item_id не дал результата, запускаю fallback")
-
     words = _query_words(query)
     if not words:
         return ""
-    logger.info("[CATS] Fallback: pages=%s workers=%s words=%s", min(max_pages, COMEBACK_CATS_PAGES), max_workers, words)
+    logger.info("[CATS] Fallback page scan: pages=%s workers=%s words=%s", min(max_pages, COMEBACK_CATS_PAGES), max_workers, words)
     pages = range(1, min(max_pages, COMEBACK_CATS_PAGES) + 1)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         results = list(pool.map(lambda page: _find_matches(page, words), pages))
@@ -424,10 +424,7 @@ def search_web(query: str, limit: int = 5) -> str:
             continue
         seen.add(url)
         page_text = _fetch_page(url, max_chars=7000)
-        if page_text:
-            results.append(f"Источник: {title}\nURL: {url}\nСодержимое:\n{page_text}")
-        else:
-            results.append(f"Источник: {title}\nURL: {url}")
+        results.append(f"Источник: {title}\nURL: {url}\nСодержимое:\n{page_text}" if page_text else f"Источник: {title}\nURL: {url}")
         if len(results) >= limit:
             break
     return "\n\n---\n\n".join(results)
