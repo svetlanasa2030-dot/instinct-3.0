@@ -25,6 +25,7 @@ class AIEngine:
         self.storage = storage
         self.tts_model = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
         self.tts_voice = os.getenv("OPENAI_TTS_VOICE", "nova")
+        logger.info("[TTS] configured: model=%s voice=%s", self.tts_model, self.tts_voice)
 
     async def _generate(self, messages: list[dict], web_search: bool = False) -> str:
         kwargs = {"model": self.model, "input": messages}
@@ -45,13 +46,20 @@ class AIEngine:
         if len(text) > 4000:
             text = text[:3990].rstrip() + "…"
 
-        response = await self.client.audio.speech.create(
-            model=self.tts_model,
-            voice=self.tts_voice,
-            input=text,
-            response_format="opus",
-        )
-        return await response.read()
+        logger.info("[TTS] request: model=%s voice=%s chars=%s", self.tts_model, self.tts_voice, len(text))
+        try:
+            response = await self.client.audio.speech.create(
+                model=self.tts_model,
+                voice=self.tts_voice,
+                input=text,
+                response_format="opus",
+            )
+            audio = await response.read()
+            logger.info("[TTS] success: model=%s voice=%s bytes=%s", self.tts_model, self.tts_voice, len(audio))
+            return audio
+        except Exception:
+            logger.exception("[TTS] FAILED: model=%s voice=%s", self.tts_model, self.tts_voice)
+            raise
 
     async def decide_and_answer(self, chat_id: int, user_text: str) -> str:
         context = self.storage.recent(chat_id)
