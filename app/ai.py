@@ -15,6 +15,7 @@ _IDENTITY_QUESTION = re.compile(
 from .knowledge import search_knowledge
 from .storage import Storage
 from .web_search import search_comeback_cats, search_web
+from .game_features import add_history, price_analysis, market_summary
 
 
 class AIEngine:
@@ -80,6 +81,16 @@ class AIEngine:
 
         if comeback_context:
             knowledge += "\n\nИсточник №1 — База котов ComebackPW 1.4.6:\n" + comeback_context
+            try:
+                add_history(self.storage.db_path, chat_id, user_text.strip(), comeback_context)
+            except Exception as exc:
+                logger.warning("[PRICE] history save failed: %s", exc)
+
+        lower_text = user_text.lower()
+        if any(x in lower_text for x in ("история цены", "история цен", "как менялась цена", "динамика цены")):
+            knowledge += "\n\nАналитика сохранённых цен:\n" + price_analysis(self.storage.db_path, chat_id, user_text)
+        if lower_text.strip() in {"/market", "рынок", "что на рынке", "что нового на рынке", "рынок сегодня"}:
+            knowledge += "\n\nСводка сохранённых наблюдений рынка:\n" + market_summary(self.storage.db_path, chat_id)
         if web_context:
             knowledge += "\n\nДополнительные источники:\n" + web_context
 
