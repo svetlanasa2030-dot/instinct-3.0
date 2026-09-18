@@ -123,6 +123,24 @@ async def command_unwatch(message: Message):
     await message.answer('🗑 Наблюдение удалено.' if ok else 'Не нашла такое наблюдение.')
 
 
+@dp.message(F.text.startswith('/history'))
+async def command_history(message: Message):
+    if not _is_allowed_chat(message): return
+    item = re.sub(r'^/history(?:@\\w+)?\\s*', '', message.text or '', flags=re.I).strip()
+    if not item:
+        await message.answer('Формат: /history предмет')
+        return
+    from app.game_features import price_analysis
+    await message.answer(price_analysis(settings.db_path, message.chat.id, item))
+
+
+@dp.message(F.text.startswith('/market'))
+async def command_market(message: Message):
+    if not _is_allowed_chat(message): return
+    from app.game_features import market_summary
+    await message.answer(market_summary(settings.db_path, message.chat.id))
+
+
 @dp.message(F.text)
 async def on_message(message: Message):
     global _bot_id
@@ -130,7 +148,7 @@ async def on_message(message: Message):
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/watch','/watches','/unwatch'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/watch','/watches','/unwatch','/history','/market'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
