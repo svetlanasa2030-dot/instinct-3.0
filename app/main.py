@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.ai import AIEngine
 from app.config import load_settings
@@ -63,6 +63,25 @@ def _parse_watch_command(text: str):
         digits = re.sub(r'\D', '', match.group(1))
         return body[:match.start()].strip(), int(digits) if digits else None
     return body, None
+
+
+@dp.message(F.text.startswith('/consultant'))
+async def command_consultant(message: Message):
+    if not _is_allowed_chat(message): return
+    global _bot_id
+    if _bot_id is None:
+        await message.answer('ИИ-консультант пока не готов.')
+        return
+    bot = await message.bot.get_me()
+    username = bot.username
+    if not username:
+        await message.answer('У бота нет username, поэтому не могу открыть Mini App.')
+        return
+    url = f"https://t.me/{username}?startapp=consultant"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text='🤖 Открыть ИИ-консультанта', url=url)
+    ]])
+    await message.answer('Откройте мой ИИ-консультант прямо внутри Telegram:', reply_markup=keyboard)
 
 
 @dp.message(F.text.startswith('/start'))
@@ -148,7 +167,7 @@ async def on_message(message: Message):
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/watch','/watches','/unwatch','/history','/market'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
