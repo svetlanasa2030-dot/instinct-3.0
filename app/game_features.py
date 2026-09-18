@@ -57,6 +57,50 @@ def add_history(db_path: str, chat_id: int, item: str, snapshot: str):
             )
 
 
+
+def price_analysis(db_path: str, chat_id: int, item: str) -> str:
+    """Return factual current/history price context for the AI."""
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT sale_price,buy_price,created_at FROM price_history WHERE chat_id=? AND item=? ORDER BY id DESC LIMIT 30",
+            (chat_id, item.strip()),
+        ).fetchall()
+    if not rows:
+        return "Истории цены для этого предмета пока нет."
+    sales = [r[0] for r in rows if r[0] is not None]
+    buys = [r[1] for r in rows if r[1] is not None]
+    lines = [f"История цены: {item}", f"Снимков: {len(rows)}"]
+    if sales:
+        lines.append(f"Продажа: минимум {min(sales)}, максимум {max(sales)}, последнее {sales[0]}")
+    if buys:
+        lines.append(f"Скупка: минимум {min(buys)}, максимум {max(buys)}, последнее {buys[0]}")
+    if len(sales) >= 2:
+        delta = sales[0] - sales[-1]
+        lines.append(f"Изменение продажи между последним и самым старым сохранённым снимком: {delta:+d}")
+    return "\n".join(lines)
+
+
+def market_summary(db_path: str, chat_id: int) -> str:
+    """Summarize latest stored market observations without inventing trends."""
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT item,sale_price,buy_price,created_at FROM price_history WHERE chat_id=? ORDER BY id DESC LIMIT 20",
+            (chat_id,),
+        ).fetchall()
+    if not rows:
+        return "Сохранённых наблюдений рынка пока нет."
+    latest = {}
+    for item, sale, buy, created_at in rows:
+        latest.setdefault(item, (sale, buy, created_at))
+    lines = ["Последние сохранённые наблюдения рынка:"]
+    for item, (sale, buy, created_at) in list(latest.items())[:10]:
+        parts = []
+        if sale is not None: parts.append(f"продажа {sale}")
+        if buy is not None: parts.append(f"скупка {buy}")
+        lines.append(f"{item} — {', '.join(parts) if parts else 'данные без цены'}")
+    return "\n".join(lines)
+
+
 def add_watch(db_path: str, chat_id: int, user_id: int | None, item: str, max_price: int | None = None) -> int:
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
