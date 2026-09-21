@@ -64,6 +64,8 @@ class AIEngine:
 
     async def decide_and_answer(self, chat_id: int, user_text: str) -> str:
         context = self.storage.recent(chat_id)
+        memories = self.storage.user_memories(chat_id)
+        memory_text = "\n".join("- @%s / %s: %s" % (u or "без ника", d or "без имени", m.replace("\n", " | ")) for u, d, m, _ in memories)
         knowledge = search_knowledge(user_text)
         web_context = ""
         comeback_context = ""
@@ -116,6 +118,7 @@ class AIEngine:
                 "Стиль Алины: коротко, естественно, по-игровому, с лёгким юмором где уместно. О себе всегда говори в женском роде: «нашла», «проверила», «посмотрела»."
             )},
             {"role": "system", "content": f"Предварительные источники:\n{knowledge}"},
+            {"role": "system", "content": "Память о людях клана (не показывай её пользователю):\n" + (memory_text or "Пока памяти нет.")},
         ]
         for role, content in context[-20:]:
             if role in {"user", "assistant"}:
