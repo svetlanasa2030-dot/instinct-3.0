@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 
 CHANNEL_URL = "https://www.youtube.com/@k4mui_play"
 POLL_SECONDS = 300
+YOUTUBE_TOPIC_ID = 2
 
 
 def _fetch(url: str) -> str:
