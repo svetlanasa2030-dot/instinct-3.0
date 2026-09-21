@@ -109,9 +109,9 @@ def monitor_forever(db_path: str, send_message):
             if new_video:
                 title, url, published = new_video
                 send_message(
-                    f"📺 Новое видео на YouTube-канале @k4mui_play!\n\n"
-                    f"🎬 {title}\n"
-                    f"🔗 {url}"
+                    f"😌 Всё, я уже посмотрела и лайкнула новый ролик @k4mui_play.\n\n"
+                    f"🎬 {title}\n\n"
+                    f"Если ещё не смотрели — вот он 👇\n{url}"
                 )
         except Exception:
             logging.exception("YouTube monitor check failed")
