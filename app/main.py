@@ -15,6 +15,7 @@ from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
+from app.youtube_monitor import monitor_forever
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -36,6 +37,7 @@ _knowledge_sync_task: asyncio.Task | None = None
 _news_monitor_thread = None
 _watch_task: asyncio.Task | None = None
 _reminder_task: asyncio.Task | None = None
+_youtube_task: asyncio.Task | None = None
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
@@ -302,6 +304,18 @@ async def _reminders_forever(bot: Bot):
         await asyncio.sleep(5)
 
 
+async def _youtube_forever(bot: Bot):
+    loop = asyncio.get_running_loop()
+
+    def send_message(text):
+        future = asyncio.run_coroutine_threadsafe(
+            bot.send_message(settings.group_chat_id, text), loop
+        )
+        future.result(timeout=30)
+
+    await asyncio.to_thread(monitor_forever, settings.db_path, send_message)
+
+
 async def _sync_forum_forever():
     while True:
         try:
@@ -331,7 +345,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
     me = await bot.get_me()
@@ -340,6 +354,7 @@ async def main():
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
     _watch_task = asyncio.create_task(_watch_forever(bot))
     _reminder_task = asyncio.create_task(_reminders_forever(bot))
+    _youtube_task = asyncio.create_task(_youtube_forever(bot))
     if run_news_monitor_in_thread is not None:
         import threading
         _news_monitor_thread = threading.Thread(target=run_news_monitor_in_thread, name='telegram-news-monitor', daemon=True)
@@ -348,7 +363,7 @@ async def main():
         _polling_task = asyncio.current_task()
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        for task in (_knowledge_sync_task, _watch_task, _reminder_task):
+        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task):
             if task and not task.done(): task.cancel()
         await bot.session.close()
 
