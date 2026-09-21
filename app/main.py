@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 from pathlib import Path
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -92,6 +93,40 @@ async def command_reminder(message: Message):
     )
     when = run_at.strftime("%d.%m.%Y в %H:%M")
     await message.answer(f"⏰ Готово. Напомню {when}: {reminder_text} (№{reminder_id})")
+
+
+
+
+def _authorized_reminder_user(message: Message) -> bool:
+    return _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None)
+
+
+@dp.message(F.text.startswith('/reminders'))
+async def command_reminders(message: Message):
+    if not _authorized_reminder_user(message):
+        return
+    rows = reminder_service.list_pending(message.chat.id)
+    if not rows:
+        await message.answer('📭 Активных напоминаний нет.')
+        return
+    lines = ['⏰ Активные напоминания:']
+    for reminder_id, text, run_at, repeat_rule in rows:
+        dt = datetime.fromisoformat(run_at).astimezone()
+        lines.append(f'#{reminder_id} — {dt.strftime("%d.%m.%Y %H:%M")} — {text}')
+    lines.append('Отменить: /cancel ID')
+    await message.answer('\n'.join(lines))
+
+
+@dp.message(F.text.startswith('/cancel'))
+async def command_cancel(message: Message):
+    if not _authorized_reminder_user(message):
+        return
+    match = re.search(r'^/cancel(?:@\w+)?\s+(\d+)', message.text or '', re.I)
+    if not match:
+        await message.answer('Формат: /cancel ID')
+        return
+    ok = reminder_service.cancel(message.chat.id, int(match.group(1)))
+    await message.answer('🗑 Напоминание отменено.' if ok else 'Не нашла такое напоминание.')
 
 
 @dp.message(F.text.startswith('/consultant'))
@@ -196,7 +231,7 @@ async def on_message(message: Message):
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
