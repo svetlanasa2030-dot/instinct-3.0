@@ -303,11 +303,11 @@ async def on_message(message: Message):
     if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
+    display_name = message.from_user.full_name if message.from_user else None
+    storage.remember_user(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, display_name, original_text)
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
 
     text = original_text
-    display_name = message.from_user.full_name if message.from_user else None
-    storage.remember_user(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, display_name, text)
     storage.add(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, 'user', text)
     try:
         answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
