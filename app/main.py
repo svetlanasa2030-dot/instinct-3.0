@@ -167,6 +167,35 @@ async def command_forum_search(message: Message):
         await message.answer('Не смогла выполнить поиск по форуму. Попробуй ещё раз.')
 
 
+
+def _game_request(text: str) -> bool:
+    normalized = re.sub(r'[^a-zа-яё0-9 ]+', ' ', text.lower())
+    normalized = re.sub(r'\\s+', ' ', normalized).strip()
+    return bool(re.search(r'\\bалина\\b', normalized) and re.search(r'\\bдавай\\s+(?:поиграем|играть)\\b', normalized))
+
+
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and _game_request((message.text or '').strip()))
+async def command_game(message: Message):
+    if not _is_allowed_chat(message):
+        return
+    import random
+    games = [
+        ('💋 «Правда или провокация»', 'Пишем «Я» — я выберу участников и начнём.'),
+        ('😈 «Самый наглый»', 'Я даю ситуацию, а вы пишете самый дерзкий ответ. Победителя выберу я.'),
+        ('🔥 «Кому бы ты…»', 'Я задаю провокационные вопросы про участников чата. Отвечаем честно 😏'),
+        ('🍷 «Свидание вслепую»', 'Я случайно объединю двух участников и устрою им мини-свидание.'),
+        ('😏 «Продолжи фразу»', 'Я начинаю фразу, а вы заканчиваете её. Чем смешнее и смелее — тем лучше.'),
+        ('😂 «Кто из нас?»', 'Я задаю вопросы вроде «кто первым влюбится?» — а вы выбираете игрока.'),
+    ]
+    title, rules = random.choice(games)
+    await message.answer(
+        f'😈 Ну что, начинаем?\\n\\n'
+        f'Сегодня я выбрала {title}.\\n\\n'
+        f'{rules}\\n\\n'
+        f'Кто участвует — пишите «Я» 👀'
+    )
+
+
 @dp.message(F.text.startswith('/consultant'))
 async def command_consultant(message: Message):
     if not _is_allowed_chat(message): return
