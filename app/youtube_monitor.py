@@ -1,4 +1,5 @@
 import logging
+import random
 import re
 import sqlite3
 import urllib.parse
@@ -108,11 +109,14 @@ def monitor_forever(db_path: str, send_message):
             new_video = check_new_video(db_path)
             if new_video:
                 title, url, published = new_video
-                send_message(
-                    f"😌 Всё, я уже посмотрела и лайкнула новый ролик @k4mui_play.\n\n"
-                    f"🎬 {title}\n\n"
-                    f"Если ещё не смотрели — вот он 👇\n{url}"
-                )
+                messages = [
+                    f"😌 Я уже посмотрела и лайкнула новый ролик @k4mui_play.\n\n🎬 {title}\n\nЕсли ещё не смотрели — вот он 👇\n{url}",
+                    f"👀 Так-так... новый ролик у @k4mui_play уже вышел.\n\nЯ, конечно, уже посмотрела и лайкнула 😌\n\n🎬 {title}\n🔗 {url}",
+                    f"💅 Не ждала вас — я уже сходила, посмотрела и поставила лайк.\n\n🎬 Новый ролик @k4mui_play:\n{title}\n\n👇 Ловите ссылку:\n{url}",
+                    f"🥰 Новый ролик вышел! Я уже всё посмотрела и лайкнула, можете не переживать.\n\n🎬 {title}\n\n🔗 {url}",
+                    f"📢 Докладываю: @k4mui_play снова выпустил ролик.\n\nА я уже посмотрела и лайкнула 😎\n\n🎬 {title}\n🔗 {url}",
+                ]
+                send_message(random.choice(messages))
         except Exception:
             logging.exception("YouTube monitor check failed")
         import time
