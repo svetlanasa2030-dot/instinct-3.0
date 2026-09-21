@@ -34,7 +34,6 @@ _knowledge_sync_task: asyncio.Task | None = None
 _news_monitor_thread = None
 _watch_task: asyncio.Task | None = None
 _reminder_task: asyncio.Task | None = None
-_reminder_task: asyncio.Task | None = None
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
@@ -71,7 +70,7 @@ def _parse_watch_command(text: str):
 
 
 
-@dp.message(F.text)
+@dp.message(F.text, lambda message: is_authorized(message.from_user.username if message.from_user else None) and parse_command((message.text or '').strip()) is not None)
 async def command_reminder(message: Message):
     if not _is_allowed_chat(message):
         return
