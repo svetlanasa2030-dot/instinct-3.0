@@ -117,3 +117,19 @@ class ReminderService:
                 except Exception:
                     # Leave it unsent so the next poll can retry.
                     raise
+
+
+    def list_pending(self, chat_id: int):
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT id, text, run_at, repeat_rule FROM scheduled_messages WHERE chat_id=? AND sent=0 ORDER BY run_at, id",
+                (chat_id,),
+            ).fetchall()
+
+    def cancel(self, chat_id: int, reminder_id: int) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE scheduled_messages SET sent=1 WHERE id=? AND chat_id=? AND sent=0",
+                (reminder_id, chat_id),
+            )
+            return cur.rowcount > 0
