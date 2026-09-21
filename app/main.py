@@ -16,6 +16,7 @@ from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever
+from app.random_events import run_random_events
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -38,6 +39,7 @@ _news_monitor_thread = None
 _watch_task: asyncio.Task | None = None
 _reminder_task: asyncio.Task | None = None
 _youtube_task: asyncio.Task | None = None
+_random_events_task: asyncio.Task | None = None
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
@@ -304,6 +306,8 @@ async def on_message(message: Message):
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
 
     text = original_text
+    display_name = message.from_user.full_name if message.from_user else None
+    storage.remember_user(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, display_name, text)
     storage.add(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, 'user', text)
     try:
         answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
@@ -374,7 +378,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task, _random_events_task
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
     me = await bot.get_me()
@@ -384,6 +388,7 @@ async def main():
     _watch_task = asyncio.create_task(_watch_forever(bot))
     _reminder_task = asyncio.create_task(_reminders_forever(bot))
     _youtube_task = asyncio.create_task(_youtube_forever(bot))
+    _random_events_task = asyncio.create_task(run_random_events(bot, ai, storage, settings.group_chat_id))
     if run_news_monitor_in_thread is not None:
         import threading
         _news_monitor_thread = threading.Thread(target=run_news_monitor_in_thread, name='telegram-news-monitor', daemon=True)
@@ -392,7 +397,7 @@ async def main():
         _polling_task = asyncio.current_task()
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task):
+        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task, _random_events_task):
             if task and not task.done(): task.cancel()
         await bot.session.close()
 
