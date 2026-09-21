@@ -9,6 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from app.ai import AIEngine
 from app.config import load_settings
 from app.storage import Storage
+from app.reminders import ReminderService, is_authorized, parse_command
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
@@ -22,6 +23,7 @@ settings = load_settings()
 storage = Storage(settings.db_path)
 init_game_features(settings.db_path)
 ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
+reminder_service = ReminderService(settings.db_path)
 dp = Dispatcher()
 dp.include_router(knowledge_router)
 
@@ -31,6 +33,8 @@ _polling_task: asyncio.Task | None = None
 _knowledge_sync_task: asyncio.Task | None = None
 _news_monitor_thread = None
 _watch_task: asyncio.Task | None = None
+_reminder_task: asyncio.Task | None = None
+_reminder_task: asyncio.Task | None = None
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
@@ -63,6 +67,32 @@ def _parse_watch_command(text: str):
         digits = re.sub(r'\D', '', match.group(1))
         return body[:match.start()].strip(), int(digits) if digits else None
     return body, None
+
+
+
+
+@dp.message(F.text)
+async def command_reminder(message: Message):
+    if not _is_allowed_chat(message):
+        return
+    username = message.from_user.username if message.from_user else None
+    if not is_authorized(username):
+        return
+
+    parsed = parse_command((message.text or "").strip())
+    if not parsed:
+        return
+
+    run_at, reminder_text = parsed
+    reminder_id = reminder_service.schedule(
+        message.chat.id,
+        message.from_user.id if message.from_user else None,
+        username,
+        reminder_text,
+        run_at,
+    )
+    when = run_at.strftime("%d.%m.%Y в %H:%M")
+    await message.answer(f"⏰ Готово. Напомню {when}: {reminder_text} (№{reminder_id})")
 
 
 @dp.message(F.text.startswith('/consultant'))
@@ -183,6 +213,25 @@ async def on_message(message: Message):
         logging.exception('Failed to generate/send answer: %s', exc)
 
 
+
+
+async def _reminders_forever(bot: Bot):
+    loop = asyncio.get_running_loop()
+
+    def send_message(chat_id, text):
+        future = asyncio.run_coroutine_threadsafe(bot.send_message(chat_id, text), loop)
+        future.result(timeout=30)
+
+    while True:
+        try:
+            await asyncio.to_thread(reminder_service.send_due, send_message)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.exception('Reminder delivery failed: %s', exc)
+        await asyncio.sleep(5)
+
+
 async def _sync_forum_forever():
     while True:
         try:
@@ -212,7 +261,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
     me = await bot.get_me()
@@ -220,6 +269,7 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=False)
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
     _watch_task = asyncio.create_task(_watch_forever(bot))
+    _reminder_task = asyncio.create_task(_reminders_forever(bot))
     if run_news_monitor_in_thread is not None:
         import threading
         _news_monitor_thread = threading.Thread(target=run_news_monitor_in_thread, name='telegram-news-monitor', daemon=True)
@@ -228,7 +278,7 @@ async def main():
         _polling_task = asyncio.current_task()
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        for task in (_knowledge_sync_task, _watch_task):
+        for task in (_knowledge_sync_task, _watch_task, _reminder_task):
             if task and not task.done(): task.cancel()
         await bot.session.close()
 
