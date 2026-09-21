@@ -342,7 +342,7 @@ async def _youtube_forever(bot: Bot):
 
     def send_message(text):
         future = asyncio.run_coroutine_threadsafe(
-            bot.send_message(settings.group_chat_id, text), loop
+            bot.send_message(settings.group_chat_id, text, message_thread_id=2), loop
         )
         future.result(timeout=30)
 
