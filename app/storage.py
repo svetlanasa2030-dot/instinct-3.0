@@ -17,6 +17,15 @@ class Storage:
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS user_memory (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                display_name TEXT,
+                last_seen TEXT NOT NULL,
+                messages TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (chat_id, user_id)
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS chat_settings (
                 chat_id INTEGER PRIMARY KEY,
                 enabled INTEGER NOT NULL DEFAULT 1,
@@ -65,3 +74,35 @@ class Storage:
                        updated_at=excluded.updated_at""",
                 (chat_id, 1 if enabled else 0, datetime.now(timezone.utc).isoformat()),
             )
+
+
+    def remember_user(self, chat_id: int, user_id: int | None, username: str | None, display_name: str | None, message: str | None = None):
+        if user_id is None:
+            return
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT messages FROM user_memory WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            ).fetchone()
+            history = [x for x in (row[0].split("\n") if row and row[0] else []) if x]
+            if message:
+                history.append(message.strip()[:500])
+                history = history[-10:]
+            conn.execute(
+                """INSERT INTO user_memory(chat_id,user_id,username,display_name,last_seen,messages)
+                   VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(chat_id,user_id) DO UPDATE SET
+                       username=excluded.username,
+                       display_name=excluded.display_name,
+                       last_seen=excluded.last_seen,
+                       messages=excluded.messages""",
+                (chat_id, user_id, username, display_name, datetime.now(timezone.utc).isoformat(), "\n".join(history)),
+            )
+
+    def user_memories(self, chat_id: int, limit: int = 30):
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT username, display_name, messages, last_seen FROM user_memory WHERE chat_id=? ORDER BY last_seen DESC LIMIT ?",
+                (chat_id, limit),
+            ).fetchall()
+        return rows
