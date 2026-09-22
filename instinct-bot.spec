@@ -1,6 +1,12 @@
 from PyInstaller.utils.hooks import collect_submodules
 
-hiddenimports = collect_submodules("aiogram") + collect_submodules("apscheduler")
+from PyInstaller.utils.hooks import collect_submodules
+
+hiddenimports = (\
+    collect_submodules("app")\
+    + collect_submodules("aiogram")\
+    + collect_submodules("apscheduler")\
+)
 
 a = Analysis(
     ["app/gui.py"],
