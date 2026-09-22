@@ -1,11 +1,12 @@
 import asyncio
 import logging
 import re
+import random
 from pathlib import Path
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
 
 from app.ai import AIEngine
 from app.config import load_settings
@@ -308,6 +309,14 @@ async def on_message(message: Message):
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
 
     text = original_text
+    # Иногда Алина реагирует на сообщение прямо в Telegram, без отдельного текста.
+    # Это делает реакцию естественной и не превращает каждый ответ в спам реакциями.
+    if random.random() < 0.35:
+        try:
+            await message.react(reaction=[ReactionTypeEmoji(emoji=random.choice(['👍', '❤️', '😂', '🔥', '👀']))])
+        except Exception as exc:
+            logging.debug('Could not add Telegram reaction: %s', exc)
+
     storage.add(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, 'user', text)
     try:
         answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
