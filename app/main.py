@@ -41,6 +41,7 @@ _watch_task: asyncio.Task | None = None
 _reminder_task: asyncio.Task | None = None
 _youtube_task: asyncio.Task | None = None
 _random_events_task: asyncio.Task | None = None
+_morning_greeting_task: asyncio.Task | None = None
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
@@ -346,6 +347,29 @@ async def _reminders_forever(bot: Bot):
         await asyncio.sleep(5)
 
 
+async def _morning_greeting_forever(bot: Bot):
+    """Каждое утро около 10:00 Алина сама здоровается с кланом."""
+    while True:
+        now = datetime.now().astimezone()
+        target = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += __import__('datetime').timedelta(days=1)
+        await asyncio.sleep(max(1, (target - datetime.now().astimezone()).total_seconds()))
+        try:
+            greetings = [
+                'Всем привет! ☀️',
+                'Всем доброе утро 😊',
+                'Доброе утро, народ! 👋',
+                'Всем привет! Ну что, просыпаемся? 😌',
+                'Доброе утро, клан 🌞',
+            ]
+            await bot.send_message(settings.group_chat_id, random.choice(greetings), message_thread_id=2)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.exception('Morning greeting failed: %s', exc)
+
+
 async def _youtube_forever(bot: Bot):
     loop = asyncio.get_running_loop()
 
@@ -387,7 +411,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task, _random_events_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task, _random_events_task, _morning_greeting_task
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
     me = await bot.get_me()
@@ -398,6 +422,7 @@ async def main():
     _reminder_task = asyncio.create_task(_reminders_forever(bot))
     _youtube_task = asyncio.create_task(_youtube_forever(bot))
     _random_events_task = asyncio.create_task(run_random_events(bot, ai, storage, settings.group_chat_id))
+    _morning_greeting_task = asyncio.create_task(_morning_greeting_forever(bot))
     if run_news_monitor_in_thread is not None:
         import threading
         _news_monitor_thread = threading.Thread(target=run_news_monitor_in_thread, name='telegram-news-monitor', daemon=True)
@@ -406,7 +431,7 @@ async def main():
         _polling_task = asyncio.current_task()
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task, _random_events_task):
+        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task, _random_events_task, _morning_greeting_task):
             if task and not task.done(): task.cancel()
         await bot.session.close()
 
