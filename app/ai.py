@@ -66,6 +66,8 @@ class AIEngine:
         context = self.storage.recent(chat_id)
         memories = self.storage.user_memories(chat_id)
         memory_text = "\n".join("- @%s / %s: %s" % (u or "без ника", d or "без имени", m.replace("\n", " | ")) for u, d, m, _ in memories)
+        clan_memories = self.storage.clan_memories(chat_id, 30)
+        clan_memory_text = "\n".join(f"- {memory}" for _, memory, _ in clan_memories)
         knowledge = search_knowledge(user_text)
         web_context = ""
         comeback_context = ""
