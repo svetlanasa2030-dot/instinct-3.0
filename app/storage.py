@@ -26,7 +26,7 @@ class Storage:
                 messages TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (chat_id, user_id)
             )""")
-            conn.execute("""CREATE TABLE IF NOT EXISTS chat_settings (
+            conn.execute("""CREATE TABLE IF NOT EXISTS clan_memory (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                chat_id INTEGER NOT NULL,\n                memory TEXT NOT NULL,\n                created_at TEXT NOT NULL\n            )""")\n            conn.execute("""CREATE TABLE IF NOT EXISTS chat_settings (
                 chat_id INTEGER PRIMARY KEY,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL
@@ -103,6 +103,24 @@ class Storage:
         with self._conn() as conn:
             row = conn.execute("SELECT last_seen FROM user_memory WHERE chat_id=? AND user_id=?", (chat_id, user_id)).fetchone()
         return row[0] if row else None
+
+
+    def add_clan_memory(self, chat_id: int, memory: str):
+        memory = memory.strip()
+        if not memory:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO clan_memory(chat_id,memory,created_at) VALUES(?,?,?)",
+                (chat_id, memory[:1000], datetime.now(timezone.utc).isoformat()),
+            )
+
+    def clan_memories(self, chat_id: int, limit: int = 30):
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT id, memory, created_at FROM clan_memory WHERE chat_id=? ORDER BY id DESC LIMIT ?",
+                (chat_id, limit),
+            ).fetchall()
 
     def user_memories(self, chat_id: int, limit: int = 30):
         with self._conn() as conn:
