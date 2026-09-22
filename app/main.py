@@ -305,7 +305,29 @@ async def on_message(message: Message):
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     display_name = message.from_user.full_name if message.from_user else None
-    storage.remember_user(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, display_name, original_text)
+    user_id = message.from_user.id if message.from_user else None
+    previous_seen = storage.user_last_seen(message.chat.id, user_id) if user_id else None
+    storage.remember_user(message.chat.id, user_id, message.from_user.username if message.from_user else None, display_name, original_text)
+
+    # Алина замечает возвращение участника после долгого отсутствия.
+    if previous_seen and user_id:
+        try:
+            last_seen_dt = datetime.fromisoformat(previous_seen)
+            if last_seen_dt.tzinfo is None:
+                last_seen_dt = last_seen_dt.replace(tzinfo=__import__('datetime').timezone.utc)
+            hours_away = (datetime.now(__import__('datetime').timezone.utc) - last_seen_dt).total_seconds() / 3600
+            if hours_away >= 24:
+                return_name = display_name or (f'@{message.from_user.username}' if message.from_user and message.from_user.username else 'ты')
+                return_messages = [
+                    f'О, {return_name} воскресла 😏 Я уже думала, куда ты пропала.',
+                    f'О, {return_name} вернулась 👀 А я уже заметила, что тебя давно не было.',
+                    f'Наконец-то {return_name} объявилась 😌 Я тебя уже потеряла.',
+                    f'О, {return_name} снова с нами 😏 Где пропадала?',
+                ]
+                await message.answer(random.choice(return_messages))
+        except (ValueError, TypeError, OverflowError):
+            pass
+
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
 
     text = original_text
