@@ -218,6 +218,30 @@ async def command_consultant(message: Message):
     await message.answer('Откройте мой ИИ-консультант прямо внутри Telegram:', reply_markup=keyboard)
 
 
+@dp.message(F.text.startswith('/remember'))
+async def command_remember(message: Message):
+    if not _is_allowed_chat(message): return
+    memory = re.sub(r'^/remember(?:@\\w+)?\\s*', '', message.text or '', flags=re.I).strip()
+    if not memory:
+        await message.answer('Формат: /remember событие, мем или важный факт клана')
+        return
+    storage.add_clan_memory(message.chat.id, memory)
+    await message.answer('🧠 Запомнила. Это теперь часть клановой памяти.')
+
+
+@dp.message(F.text.startswith('/memories'))
+async def command_memories(message: Message):
+    if not _is_allowed_chat(message): return
+    rows = storage.clan_memories(message.chat.id, 10)
+    if not rows:
+        await message.answer('🧠 Клановая память пока пустая.')
+        return
+    lines = ['🧠 Последние записи клановой памяти:']
+    for memory_id, memory, _ in rows:
+        lines.append(f'#{memory_id} — {memory}')
+    await message.answer('\n'.join(lines))
+
+
 @dp.message(F.text.startswith('/start'))
 async def command_start(message: Message):
     if not _is_allowed_chat(message): return
