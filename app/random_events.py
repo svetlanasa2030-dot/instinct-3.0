@@ -12,7 +12,10 @@ EVENTS = [
 ]
 
 
-RANDOM_EVENTS_TOPIC_ID = 2\n\n\nasync def run_random_events(bot, ai, storage, chat_id: int):
+RANDOM_EVENTS_TOPIC_ID = 2
+
+
+async def run_random_events(bot, ai, storage, chat_id: int):
     while True:
         now = datetime.now().astimezone()
         count = random.choice((2, 3))
