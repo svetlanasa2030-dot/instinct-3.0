@@ -456,3 +456,32 @@ def search_web(query: str, limit: int = 5) -> str:
         if len(results) >= limit:
             break
     return "\n".join(results)
+
+
+def search_image(query: str) -> str:
+    """Find a usable public image URL through Bing Images."""
+    query = query.strip()
+    if not query:
+        return ""
+    search_url = "https://www.bing.com/images/search?" + urllib.parse.urlencode({
+        "q": query,
+        "form": "HDRSC2",
+        "first": 1,
+        "setlang": "ru",
+    })
+    try:
+        request = urllib.request.Request(
+            search_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "ru,en;q=0.8"},
+        )
+        with urllib.request.urlopen(request, timeout=12) as response:
+            data = response.read().decode("utf-8", "ignore")
+        # Bing stores image metadata in murl fields in the result markup.
+        matches = re.findall(r'"murl":"(https?:\\/\\/[^"]+)"', data)
+        for raw_url in matches:
+            url = raw_url.replace("\\/\\/", "//").replace("\\/", "/")
+            if url.lower().startswith(("http://", "https://")):
+                return url
+    except Exception as exc:
+        logger.warning("[IMAGE] Search failed: %s", exc)
+    return ""
