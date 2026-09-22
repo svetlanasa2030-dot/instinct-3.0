@@ -17,7 +17,6 @@ from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever
-from app.random_events import run_random_events
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -411,7 +410,7 @@ def request_stop():
 
 
 async def main():
-    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task, _random_events_task, _morning_greeting_task
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task, _morning_greeting_task
     _polling_loop = asyncio.get_running_loop()
     bot = Bot(settings.telegram_token)
     me = await bot.get_me()
@@ -421,7 +420,6 @@ async def main():
     _watch_task = asyncio.create_task(_watch_forever(bot))
     _reminder_task = asyncio.create_task(_reminders_forever(bot))
     _youtube_task = asyncio.create_task(_youtube_forever(bot))
-    _random_events_task = asyncio.create_task(run_random_events(bot, ai, storage, settings.group_chat_id))
     _morning_greeting_task = asyncio.create_task(_morning_greeting_forever(bot))
     if run_news_monitor_in_thread is not None:
         import threading
@@ -431,7 +429,7 @@ async def main():
         _polling_task = asyncio.current_task()
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task, _random_events_task, _morning_greeting_task):
+        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task, _morning_greeting_task):
             if task and not task.done(): task.cancel()
         await bot.session.close()
 
