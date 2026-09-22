@@ -12,7 +12,7 @@ EVENTS = [
 ]
 
 
-async def run_random_events(bot, ai, storage, chat_id: int):
+RANDOM_EVENTS_TOPIC_ID = 2\n\n\nasync def run_random_events(bot, ai, storage, chat_id: int):
     while True:
         now = datetime.now().astimezone()
         count = random.choice((2, 3))
@@ -46,7 +46,7 @@ async def run_random_events(bot, ai, storage, chat_id: int):
                 ])
                 answer = answer.strip()
                 if answer and answer.upper() != "NO_REPLY":
-                    await bot.send_message(chat_id, answer)
+                    await bot.send_message(chat_id, answer, message_thread_id=RANDOM_EVENTS_TOPIC_ID)
                     storage.add(chat_id, None, None, "assistant", answer)
             except Exception:
                 continue
