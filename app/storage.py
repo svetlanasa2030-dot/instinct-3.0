@@ -99,6 +99,11 @@ class Storage:
                 (chat_id, user_id, username, display_name, datetime.now(timezone.utc).isoformat(), "\n".join(history)),
             )
 
+    def user_last_seen(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            row = conn.execute("SELECT last_seen FROM user_memory WHERE chat_id=? AND user_id=?", (chat_id, user_id)).fetchone()
+        return row[0] if row else None
+
     def user_memories(self, chat_id: int, limit: int = 30):
         with self._conn() as conn:
             rows = conn.execute(
