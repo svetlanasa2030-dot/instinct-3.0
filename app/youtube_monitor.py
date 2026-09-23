@@ -100,23 +100,36 @@ def check_new_video(db_path: str):
         return None
 
     _set_last(db_path, video_id)
-    return title, url, published
+    return video_id, title, url, published
 
 
-def monitor_forever(db_path: str, send_message):
+def monitor_forever(db_path: str, send_message, like_callback=None):
     logging.info("YouTube monitor started: %s", CHANNEL_URL)
     while True:
         try:
             new_video = check_new_video(db_path)
             if new_video:
-                title, url, published = new_video
-                messages = [
-                    f"😌 Я уже посмотрела и лайкнула новый ролик @k4mui_play.\n\n🎬 {title}\n\nЕсли ещё не смотрели — вот он 👇\n{url}",
-                    f"👀 Так-так... новый ролик у @k4mui_play уже вышел.\n\nЯ, конечно, уже посмотрела и лайкнула 😌\n\n🎬 {title}\n🔗 {url}",
-                    f"💅 Не ждала вас — я уже сходила, посмотрела и поставила лайк.\n\n🎬 Новый ролик @k4mui_play:\n{title}\n\n👇 Ловите ссылку:\n{url}",
-                    f"🥰 Новый ролик вышел! Я уже всё посмотрела и лайкнула, можете не переживать.\n\n🎬 {title}\n\n🔗 {url}",
-                    f"📢 Докладываю: @k4mui_play снова выпустил ролик.\n\nА я уже посмотрела и лайкнула 😎\n\n🎬 {title}\n🔗 {url}",
-                ]
+                video_id, title, url, published = new_video
+
+                liked = False
+                if like_callback:
+                    try:
+                        liked = bool(like_callback(video_id))
+                    except Exception:
+                        logging.exception("Could not put YouTube Like on %s", video_id)
+
+                if liked:
+                    messages = [
+                        f"😌 Новый ролик @k4mui_play — я уже поставила лайк.\n\n🎬 {title}\n\nЕсли ещё не смотрели — вот он 👇\n{url}",
+                        f"👀 Так-так... новый ролик у @k4mui_play.\n\nЯ уже поставила лайк 😌\n\n🎬 {title}\n🔗 {url}",
+                        f"💅 Новый ролик вышел — лайк уже стоит.\n\n🎬 {title}\n\n👇 Ловите ссылку:\n{url}",
+                    ]
+                else:
+                    messages = [
+                        f"📢 Новый ролик @k4mui_play:\n\n🎬 {title}\n\n🔗 {url}",
+                        f"👀 У @k4mui_play новый ролик:\n\n🎬 {title}\n🔗 {url}",
+                    ]
+
                 send_message(random.choice(messages))
         except Exception:
             logging.exception("YouTube monitor check failed")
