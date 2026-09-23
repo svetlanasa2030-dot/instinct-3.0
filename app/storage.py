@@ -26,7 +26,13 @@ class Storage:
                 messages TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (chat_id, user_id)
             )""")
-            conn.execute("""CREATE TABLE IF NOT EXISTS clan_memory (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                chat_id INTEGER NOT NULL,\n                memory TEXT NOT NULL,\n                created_at TEXT NOT NULL\n            )""")\n            conn.execute("""CREATE TABLE IF NOT EXISTS chat_settings (
+            conn.execute("""CREATE TABLE IF NOT EXISTS clan_memory (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                chat_id INTEGER NOT NULL,\n                memory TEXT NOT NULL,\n                created_at TEXT NOT NULL\n            )""")\n            conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_corrections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                correction TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS chat_settings (
                 chat_id INTEGER PRIMARY KEY,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL
@@ -129,3 +135,20 @@ class Storage:
                 (chat_id, limit),
             ).fetchall()
         return rows
+
+    def add_knowledge_correction(self, chat_id: int, correction: str):
+        correction = correction.strip()
+        if not correction:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO knowledge_corrections(chat_id,correction,created_at) VALUES(?,?,?)",
+                (chat_id, correction[:1500], datetime.now(timezone.utc).isoformat()),
+            )
+
+    def knowledge_corrections(self, chat_id: int, limit: int = 30):
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT id, correction, created_at FROM knowledge_corrections WHERE chat_id=? ORDER BY id DESC LIMIT ?",
+                (chat_id, limit),
+            ).fetchall()
