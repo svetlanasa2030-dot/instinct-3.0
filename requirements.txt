@@ -4,4 +4,7 @@ python-dotenv>=1.1,<2
 PyYAML>=6.0,<7
 APScheduler>=3.11,<4
 google-genai>=1.0.0
+google-api-python-client>=2.180,<3
+google-auth-oauthlib>=1.2,<2
+google-auth-httplib2>=0.2,<1
 telethon>=1.40,<2
