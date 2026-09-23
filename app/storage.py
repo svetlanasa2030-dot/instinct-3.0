@@ -43,6 +43,11 @@ class Storage:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS officers (
+                username TEXT PRIMARY KEY,
+                game_nickname TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""")
 
     def _conn(self):
         return sqlite3.connect(self.db_path)
@@ -157,4 +162,35 @@ class Storage:
             return conn.execute(
                 "SELECT id, correction, created_at FROM knowledge_corrections WHERE chat_id=? ORDER BY id DESC LIMIT ?",
                 (chat_id, limit),
+            ).fetchall()
+
+
+    def add_officer(self, username: str, game_nickname: str):
+        username = (username or "").strip().lstrip("@").lower()
+        game_nickname = (game_nickname or "").strip()
+        if not username or not game_nickname:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO officers(username, game_nickname, created_at)
+                   VALUES(?,?,?)
+                   ON CONFLICT(username) DO UPDATE SET
+                       game_nickname=excluded.game_nickname""",
+                (username, game_nickname, datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_officer(self, username: str | None):
+        username = (username or "").strip().lstrip("@").lower()
+        if not username:
+            return None
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT username, game_nickname FROM officers WHERE username=?",
+                (username,),
+            ).fetchone()
+
+    def list_officers(self):
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT username, game_nickname, created_at FROM officers ORDER BY username"
             ).fetchall()
