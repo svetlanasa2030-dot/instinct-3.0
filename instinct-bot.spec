@@ -1,11 +1,25 @@
 from PyInstaller.utils.hooks import collect_submodules
 
-from PyInstaller.utils.hooks import collect_submodules
-
-hiddenimports = (\
-    collect_submodules("app")\
-    + collect_submodules("aiogram")\
-    + collect_submodules("apscheduler")\
+# app.main загружается из GUI динамически, поэтому PyInstaller не видит
+# его зависимости обычным статическим анализом. Явно включаем весь пакет app.
+hiddenimports = (
+    collect_submodules("app")
+    + [
+        "app.main",
+        "app.storage",
+        "app.ai",
+        "app.config",
+        "app.reminders",
+        "app.knowledge",
+        "app.knowledge_ui",
+        "app.source_sync",
+        "app.game_features",
+        "app.forum_search",
+        "app.youtube_monitor",
+        "app.web_search",
+    ]
+    + collect_submodules("aiogram")
+    + collect_submodules("apscheduler")
 )
 
 a = Analysis(
