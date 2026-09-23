@@ -17,7 +17,7 @@ from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever, _latest_video
-from app.youtube_likes import like_video, get_video_rating
+from app.youtube_browser import like_video, get_video_rating
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
