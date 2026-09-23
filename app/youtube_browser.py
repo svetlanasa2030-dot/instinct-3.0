@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 
 CHANNEL_URL = "https://www.youtube.com/@k4mui_play"
+TARGET_GOOGLE_ACCOUNT = "linaabildina@gmail.com"
 DEFAULT_PROFILE_DIR = "youtube_profile"
 _browser_lock = threading.Lock()
 
@@ -49,6 +50,38 @@ def _already_liked(button) -> bool:
         return any(x in text for x in ("unlike", "не нравится", "убрать отметку", "remove like"))
     except Exception:
         return False
+
+
+def _is_target_account(page) -> bool:
+    """Verify that the active YouTube session belongs to the required Google account."""
+    try:
+        page.goto("https://www.youtube.com/", wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(2500)
+        body = (page.locator("body").inner_text(timeout=5000) or "").lower()
+        target = TARGET_GOOGLE_ACCOUNT.lower()
+        if target in body:
+            return True
+
+        # Open the YouTube account menu and check the account identity shown there.
+        account_selectors = [
+            'button[aria-label*="account" i]',
+            'button[aria-label*="аккаунт" i]',
+            'button[aria-label*="учет" i]',
+        ]
+        for selector in account_selectors:
+            locator = page.locator(selector).first
+            try:
+                if locator.is_visible(timeout=1500):
+                    locator.click(timeout=3000)
+                    page.wait_for_timeout(1000)
+                    menu_text = (page.locator("body").inner_text(timeout=3000) or "").lower()
+                    if target in menu_text:
+                        return True
+            except Exception:
+                continue
+    except Exception:
+        logging.exception("Could not verify active YouTube account")
+    return False
 
 
 def _open_context(playwright):
@@ -114,6 +147,17 @@ def like_video(video_id: str) -> bool:
                     logging.error("Could not find YouTube Like button for %s", video_id)
                     return False
 
+                if not _is_target_account(page):
+                    logging.error("Active YouTube account is not %s; Like was not applied", TARGET_GOOGLE_ACCOUNT)
+                    return False
+
+                # Return to the requested video after account verification.
+                page.goto(video_url, wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(2000)
+                button = _like_button(page)
+                if button is None:
+                    return False
+
                 if _already_liked(button):
                     logging.info("YouTube video %s is already liked", video_id)
                     return True
@@ -148,6 +192,14 @@ def get_video_rating(video_id: str) -> str:
             page = context.pages[0] if context.pages else context.new_page()
             try:
                 button = _wait_for_login_or_video(page, video_url)
+                if button is None:
+                    return "unspecified"
+                if not _is_target_account(page):
+                    logging.error("Active YouTube account is not %s", TARGET_GOOGLE_ACCOUNT)
+                    return "unspecified"
+                page.goto(video_url, wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(2000)
+                button = _like_button(page)
                 if button is None:
                     return "unspecified"
                 return "like" if _already_liked(button) else "none"
