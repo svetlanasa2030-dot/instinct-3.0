@@ -48,6 +48,18 @@ _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 def _addressed_to_alina(text: str) -> bool: return bool(_NAME_ADDRESS.search(text))
 
 
+def _is_knowledge_correction(text: str) -> bool:
+    normalized = text.lower().strip()
+    markers = (
+        "ты ошиблась", "ты ошибся", "это неверно", "это неправильно",
+        "неправильно", "ошибка", "исправь", "исправление", "на самом деле",
+        "правильно будет", "правильный ответ", "не так", "не верно",
+    )
+    has_marker = any(marker in normalized for marker in markers)
+    has_contrast = bool(re.search(r"\\bне\\b.{0,120}\\bа\\b", normalized, re.S))
+    return has_marker or has_contrast
+
+
 def _strip_urls(text: str) -> str:
     text = re.sub(r'\[([^\]]+)\]\(\s*<?https?://[^)>]+>?\s*\)', r'\1', text)
     text = re.sub(r'<https?://[^>]+>', '', text)
@@ -356,6 +368,13 @@ async def on_message(message: Message):
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
 
     text = original_text
+
+    # Если участник явно исправляет Алину, сохраняем это как приоритетную
+    # корректировку знаний. Специальная команда не нужна.
+    if _is_knowledge_correction(text):
+        storage.add_knowledge_correction(message.chat.id, text)
+        logging.info("[KNOWLEDGE] Saved user correction: %s", text[:300])
+
     # Иногда Алина реагирует на сообщение прямо в Telegram, без отдельного текста.
     # Это делает реакцию естественной и не превращает каждый ответ в спам реакциями.
     if random.random() < 0.35:
