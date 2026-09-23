@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
 
 from app.ai import AIEngine
 from app.config import load_settings
@@ -301,6 +301,52 @@ async def command_status(message: Message):
     await message.answer(f"Статус бота: {'🟢 запущен' if storage.is_chat_enabled(message.chat.id) else '🔴 остановлен'}.")
 
 
+@dp.callback_query(F.data == "yt_test_like")
+async def callback_yt_test_like(callback: CallbackQuery):
+    if callback.message is None or not _is_allowed_chat(callback.message):
+        await callback.answer()
+        return
+
+    username = callback.from_user.username if callback.from_user else None
+    if not is_authorized(username):
+        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
+        return
+
+    await callback.answer("Запускаю проверку YouTube…")
+
+    try:
+        latest = await asyncio.to_thread(_latest_video)
+        if not latest:
+            await callback.message.answer("Не смогла найти последнее видео @k4mui_play.")
+            return
+
+        video_id, title, _url, _published = latest
+        ok = await asyncio.to_thread(like_video, video_id)
+
+        if ok:
+            text = (
+                f"🧪 Тест завершён.\n\n"
+                f"Видео: «{title}»\n"
+                f"👍 Лайк поставлен или уже был установлен ранее.\n"
+                f"Аккаунт: linaabildina@gmail.com"
+            )
+        else:
+            text = (
+                f"🧪 Тест не пройден.\n\n"
+                f"Видео: «{title}»\n"
+                f"👍 Лайк не поставлен.\n"
+                f"Проверь открывшийся Chromium: активным должен быть аккаунт linaabildina@gmail.com."
+            )
+
+        await callback.message.answer(text)
+    except Exception:
+        logging.exception("YouTube like test failed")
+        await callback.message.answer(
+            "🧪 Тест не пройден. Не удалось выполнить действие в YouTube. "
+            "Проверь Playwright/Chromium и авторизацию аккаунта linaabildina@gmail.com."
+        )
+
+
 @dp.message(F.text.startswith('/watch'))
 async def command_watch(message: Message):
     if not _is_allowed_chat(message): return
@@ -435,7 +481,10 @@ async def on_message(message: Message):
         except Exception:
             logging.exception("YouTube status check failed")
             answer = "Не смогла проверить статус лайка на YouTube. Авторизация аккаунта ещё не подключена или доступ временно недоступен."
-        await message.answer(answer, reply_to_message_id=message.message_id)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🧪 Тест: поставить лайк", callback_data="yt_test_like")
+        ]])
+        await message.answer(answer, reply_to_message_id=message.message_id, reply_markup=keyboard)
         storage.add(message.chat.id, None, None, 'assistant', answer)
         return
 
