@@ -17,7 +17,6 @@ from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever
-from app.web_search import search_image
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -390,19 +389,6 @@ async def on_message(message: Message):
         await message.answer(answer, reply_to_message_id=message.message_id)
         storage.add(message.chat.id, None, None, 'assistant', answer)
 
-        image_triggers = (
-            'покажи', 'картинк', 'фото', 'изображен', 'скрин', 'мем',
-            'как выглядит', 'внешний вид', 'вид предмета'
-        )
-        if any(trigger in text.lower() for trigger in image_triggers):
-            try:
-                image_url = await asyncio.to_thread(search_image, text)
-                if image_url:
-                    await message.bot.send_photo(
-                        message.chat.id, image_url, reply_to_message_id=message.message_id
-                    )
-            except Exception as exc:
-                logging.debug('Could not send image: %s', exc)
     except Exception as exc:
         logging.exception('Failed to generate/send answer: %s', exc)
 
