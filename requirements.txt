@@ -6,3 +6,5 @@ APScheduler>=3.11,<4
 google-genai>=1.0.0
 telethon>=1.40,<2
 playwright>=1.55,<2
+gspread>=6,<7
+google-auth>=2,<3
