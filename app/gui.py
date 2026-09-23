@@ -5,6 +5,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from .config import save_local_settings, ENV_PATH
+# Явный импорт для PyInstaller: main.py загружается динамически из GUI,
+# поэтому зависимости main.py иначе могут не попасть в собранный EXE.
+from .storage import Storage  # noqa: F401
 
 
 class App(tk.Tk):
