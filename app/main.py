@@ -17,6 +17,7 @@ from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever
+from app.youtube_likes import like_video
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -444,7 +445,7 @@ async def _youtube_forever(bot: Bot):
         )
         future.result(timeout=30)
 
-    await asyncio.to_thread(monitor_forever, settings.db_path, send_message)
+    await asyncio.to_thread(monitor_forever, settings.db_path, send_message, like_video)
 
 
 async def _sync_forum_forever():
