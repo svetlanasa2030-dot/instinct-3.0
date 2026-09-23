@@ -68,6 +68,8 @@ class AIEngine:
         memory_text = "\n".join("- @%s / %s: %s" % (u or "без ника", d or "без имени", m.replace("\n", " | ")) for u, d, m, _ in memories)
         clan_memories = self.storage.clan_memories(chat_id, 30)
         clan_memory_text = "\n".join(f"- {memory}" for _, memory, _ in clan_memories)
+        corrections = self.storage.knowledge_corrections(chat_id, 30)
+        corrections_text = "\n".join(f"- {correction}" for _, correction, _ in corrections)
         knowledge = search_knowledge(user_text)
         web_context = ""
         comeback_context = ""
@@ -121,6 +123,7 @@ class AIEngine:
             )},
             {"role": "system", "content": f"Предварительные источники:\n{knowledge}"},
             {"role": "system", "content": "Память о людях клана (не показывай её пользователю):\n" + (memory_text or "Пока памяти нет.")},
+            {"role": "system", "content": "Исправления фактов от участников клана (приоритетные корректировки знаний; не раскрывай внутреннюю базу):\n" + (corrections_text or "Исправлений пока нет.")},
         ]
         for role, content in context[-20:]:
             if role in {"user", "assistant"}:
