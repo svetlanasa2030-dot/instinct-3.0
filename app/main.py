@@ -6,6 +6,9 @@ from pathlib import Path
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
 
 from app.ai import AIEngine
@@ -18,6 +21,7 @@ from app.game_features import init_game_features, add_watch, list_watches, remov
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever, _latest_video
 from app.youtube_browser import like_video, get_video_rating
+from app.google_sheets import PlayerSheet, GoogleSheetsError
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -29,7 +33,16 @@ storage = Storage(settings.db_path)
 init_game_features(settings.db_path)
 ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
 reminder_service = ReminderService(settings.db_path)
-dp = Dispatcher()
+player_sheet = PlayerSheet()
+dp = Dispatcher(storage=MemoryStorage())
+
+
+class NewPlayerForm(StatesGroup):
+    nickname = State()
+    level = State()
+    player_class = State()
+    ts = State()
+    telegram = State()
 dp.include_router(knowledge_router)
 
 _bot_id: int | None = None
@@ -401,6 +414,384 @@ async def command_market(message: Message):
     if not _is_allowed_chat(message): return
     from app.game_features import market_summary
     await message.answer(market_summary(settings.db_path, message.chat.id))
+
+
+def _clean_username(username: str | None) -> str:
+    return (username or "").strip().lstrip("@").lower()
+
+
+def _is_officer(message: Message) -> bool:
+    username = message.from_user.username if message.from_user else None
+    return bool(is_authorized(username) or storage.get_officer(username))
+
+
+def _parse_officer_add(text: str):
+    body = re.sub(r'(?i)^\s*алина[,:]?\s*', '', text or '').strip()
+    match = re.match(r'(?is)^добавь\s+в\s+офицерку\s+(@[\w\d_]+)\s+(.+?)\s*async def on_new_chat_members(message: Message):
+    """Автоматически приветствует новых участников группы."""
+    if not _is_allowed_chat(message):
+        return
+
+    new_members = [member for member in (message.new_chat_members or []) if not (_bot_id and member.id == _bot_id)]
+    if not new_members:
+        return
+
+    greetings = [
+        "Добро пожаловать, {name}! 👋 Осваивайся, у нас тут весело 😏",
+        "О, новенький! {name}, добро пожаловать в клан 👀",
+        "Встречаем {name}! 👋 Заходи, располагайся.",
+        "{name}, добро пожаловать! 😌 Теперь ты официально с нами.",
+        "Так-так, к нам прибыло подкрепление — {name}! 🔥 Добро пожаловать!",
+    ]
+
+    names = [member.full_name or member.first_name or "новенький" for member in new_members]
+    if len(names) == 1:
+        text = random.choice(greetings).format(name=names[0])
+    else:
+        text = "Добро пожаловать в клан! 👋\\n\\n" + "\\n".join(f"• {name}" for name in names)
+        text += "\\n\\nОсваивайтесь, теперь вы с нами 😏"
+
+    await message.bot.send_message(
+        settings.group_chat_id,
+        text,
+        message_thread_id=2,
+    )
+
+
+@dp.message(F.text)
+async def on_message(message: Message):
+    global _bot_id
+    if not _is_allowed_chat(message): return
+    original_text = (message.text or '').strip()
+    if not original_text: return
+    if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel'}: return
+    if not storage.is_chat_enabled(message.chat.id): return
+    is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
+    display_name = message.from_user.full_name if message.from_user else None
+    user_id = message.from_user.id if message.from_user else None
+    previous_seen = storage.user_last_seen(message.chat.id, user_id) if user_id else None
+    storage.remember_user(message.chat.id, user_id, message.from_user.username if message.from_user else None, display_name, original_text)
+
+    # Алина замечает возвращение участника после долгого отсутствия.
+    if previous_seen and user_id:
+        try:
+            last_seen_dt = datetime.fromisoformat(previous_seen)
+            if last_seen_dt.tzinfo is None:
+                last_seen_dt = last_seen_dt.replace(tzinfo=__import__('datetime').timezone.utc)
+            hours_away = (datetime.now(__import__('datetime').timezone.utc) - last_seen_dt).total_seconds() / 3600
+            if hours_away >= 24:
+                return_name = display_name or (f'@{message.from_user.username}' if message.from_user and message.from_user.username else 'ты')
+                return_messages = [
+                    f'О, {return_name} воскресла 😏 Я уже думала, куда ты пропала.',
+                    f'О, {return_name} вернулась 👀 А я уже заметила, что тебя давно не было.',
+                    f'Наконец-то {return_name} объявилась 😌 Я тебя уже потеряла.',
+                    f'О, {return_name} снова с нами 😏 Где пропадала?',
+                ]
+                await message.answer(random.choice(return_messages))
+        except (ValueError, TypeError, OverflowError):
+            pass
+
+    if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
+
+    text = original_text
+
+    # Вопросы о YouTube-канале обрабатываем отдельно: Алина может
+    # проверить реальный статус лайка авторизованного аккаунта.
+    if _is_youtube_question(text):
+        try:
+            answer = await _youtube_status_answer()
+        except Exception:
+            logging.exception("YouTube status check failed")
+            answer = "Не смогла проверить статус лайка на YouTube. Авторизация аккаунта ещё не подключена или доступ временно недоступен."
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🧪 Тест: поставить лайк", callback_data="yt_test_like")
+        ]])
+        await message.answer(answer, reply_to_message_id=message.message_id, reply_markup=keyboard)
+        storage.add(message.chat.id, None, None, 'assistant', answer)
+        return
+
+    # Если участник явно исправляет Алину, сохраняем это как приоритетную
+    # корректировку знаний. Специальная команда не нужна.
+    if _is_knowledge_correction(text):
+        storage.add_knowledge_correction(message.chat.id, text)
+        logging.info("[KNOWLEDGE] Saved user correction: %s", text[:300])
+
+    # Иногда Алина реагирует на сообщение прямо в Telegram, без отдельного текста.
+    # Это делает реакцию естественной и не превращает каждый ответ в спам реакциями.
+    if random.random() < 0.35:
+        try:
+            await message.react(reaction=[ReactionTypeEmoji(emoji=random.choice(['👍', '❤️', '😂', '🔥', '👀']))])
+        except Exception as exc:
+            logging.debug('Could not add Telegram reaction: %s', exc)
+
+    storage.add(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, 'user', text)
+    try:
+        answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
+        if not answer: return
+        await message.answer(answer, reply_to_message_id=message.message_id)
+        storage.add(message.chat.id, None, None, 'assistant', answer)
+
+    except Exception as exc:
+        logging.exception('Failed to generate/send answer: %s', exc)
+
+
+
+
+async def _reminders_forever(bot: Bot):
+    loop = asyncio.get_running_loop()
+
+    def send_message(chat_id, text):
+        future = asyncio.run_coroutine_threadsafe(bot.send_message(chat_id, text), loop)
+        future.result(timeout=30)
+
+    while True:
+        try:
+            await asyncio.to_thread(reminder_service.send_due, send_message)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.exception('Reminder delivery failed: %s', exc)
+        await asyncio.sleep(5)
+
+
+async def _morning_greeting_forever(bot: Bot):
+    """Каждое утро около 10:00 Алина сама здоровается с кланом."""
+    while True:
+        now = datetime.now().astimezone()
+        target = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += __import__('datetime').timedelta(days=1)
+        await asyncio.sleep(max(1, (target - datetime.now().astimezone()).total_seconds()))
+        try:
+            greetings = [
+                'Всем привет! ☀️',
+                'Всем доброе утро 😊',
+                'Доброе утро, народ! 👋',
+                'Всем привет! Ну что, просыпаемся? 😌',
+                'Доброе утро, клан 🌞',
+            ]
+            await bot.send_message(settings.group_chat_id, random.choice(greetings), message_thread_id=2)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.exception('Morning greeting failed: %s', exc)
+
+
+async def _youtube_forever(bot: Bot):
+    loop = asyncio.get_running_loop()
+
+    def send_message(text):
+        future = asyncio.run_coroutine_threadsafe(
+            bot.send_message(settings.group_chat_id, text, message_thread_id=2), loop
+        )
+        future.result(timeout=30)
+
+    await asyncio.to_thread(monitor_forever, settings.db_path, send_message, like_video)
+
+
+async def _sync_forum_forever():
+    while True:
+        try:
+            sources = [x.strip() for x in settings.knowledge_sources.splitlines() if x.strip()]
+            if sources: await asyncio.to_thread(collect_sources, sources, 20000)
+        except asyncio.CancelledError: raise
+        except Exception as exc: logging.exception('Knowledge synchronization failed: %s', exc)
+        await asyncio.sleep(settings.knowledge_refresh_minutes * 60)
+
+
+async def _watch_forever(bot: Bot):
+    loop = asyncio.get_running_loop()
+    def send_message(chat_id, text):
+        future = asyncio.run_coroutine_threadsafe(bot.send_message(chat_id, text), loop)
+        future.result(timeout=30)
+    while True:
+        try:
+            await asyncio.to_thread(check_watches, settings.db_path, send_message)
+        except asyncio.CancelledError: raise
+        except Exception as exc: logging.exception('Watch synchronization failed: %s', exc)
+        await asyncio.sleep(15 * 60)
+
+
+def request_stop():
+    global _polling_loop, _polling_task
+    if _polling_loop and _polling_task and not _polling_task.done(): _polling_loop.call_soon_threadsafe(_polling_task.cancel)
+
+
+async def main():
+    global _bot_id, _polling_loop, _polling_task, _knowledge_sync_task, _news_monitor_thread, _watch_task, _reminder_task, _youtube_task, _morning_greeting_task
+    _polling_loop = asyncio.get_running_loop()
+    bot = Bot(settings.telegram_token)
+    me = await bot.get_me()
+    _bot_id = me.id
+    await bot.delete_webhook(drop_pending_updates=False)
+    _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
+    _watch_task = asyncio.create_task(_watch_forever(bot))
+    _reminder_task = asyncio.create_task(_reminders_forever(bot))
+    _youtube_task = asyncio.create_task(_youtube_forever(bot))
+    _morning_greeting_task = asyncio.create_task(_morning_greeting_forever(bot))
+    if run_news_monitor_in_thread is not None:
+        import threading
+        _news_monitor_thread = threading.Thread(target=run_news_monitor_in_thread, name='telegram-news-monitor', daemon=True)
+        _news_monitor_thread.start()
+    try:
+        _polling_task = asyncio.current_task()
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        for task in (_knowledge_sync_task, _watch_task, _reminder_task, _youtube_task, _morning_greeting_task):
+            if task and not task.done(): task.cancel()
+        await bot.session.close()
+
+
+if __name__ == '__main__': asyncio.run(main())
+, body)
+    if not match:
+        return None
+    return _clean_username(match.group(1)), match.group(2).strip()
+
+
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None) and _parse_officer_add(message.text or '') is not None)
+async def command_add_officer(message: Message):
+    parsed = _parse_officer_add(message.text or '')
+    if not parsed:
+        return
+    username, game_nickname = parsed
+    storage.add_officer(username, game_nickname)
+    await message.answer(
+        f"👑 Готово. @{username} добавлен в список офицеров.\n"
+        f"🎮 Игровой ник: {game_nickname}"
+    )
+
+
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and _is_officer(message) and re.search(r'(?i)\bалина\b.*\bдобавь\s+новенького\b', message.text or '') is not None)
+async def start_new_player(message: Message, state: FSMContext):
+    await state.clear()
+    await state.set_state(NewPlayerForm.nickname)
+    await message.answer("🎮 Введи игровой ник нового игрока:")
+
+
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and not _is_officer(message) and re.search(r'(?i)\bалина\b.*\bдобавь\s+новенького\b', message.text or '') is not None)
+async def non_officer_new_player(message: Message):
+    await message.answer(
+        "😏 Пока ты не офицер, поэтому принимать новеньких через меня нельзя.\n\n"
+        "Но это не приговор 😉 Проявляй себя, помогай клану и докажи, что готов брать ответственность.\n\n"
+        "👑 Станешь офицером — эта форма будет ждать тебя здесь."
+    )
+
+
+@dp.message(NewPlayerForm.nickname)
+async def new_player_nickname(message: Message, state: FSMContext):
+    nickname = (message.text or '').strip()
+    if not nickname:
+        await message.answer("🎮 Введи игровой ник текстом.")
+        return
+    await state.update_data(nickname=nickname)
+    await state.set_state(NewPlayerForm.level)
+    await message.answer("📊 Укажи уровень игрока:")
+
+
+@dp.message(NewPlayerForm.level)
+async def new_player_level(message: Message, state: FSMContext):
+    level = (message.text or '').strip()
+    if not level:
+        await message.answer("📊 Укажи уровень игрока.")
+        return
+    await state.update_data(level=level)
+    await state.set_state(NewPlayerForm.player_class)
+    await message.answer("⚔️ Укажи класс игрока:")
+
+
+@dp.message(NewPlayerForm.player_class)
+async def new_player_class(message: Message, state: FSMContext):
+    player_class = (message.text or '').strip()
+    if not player_class:
+        await message.answer("⚔️ Укажи класс игрока.")
+        return
+    await state.update_data(player_class=player_class)
+    await state.set_state(NewPlayerForm.ts)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Да", callback_data="new_player_ts:yes"),
+        InlineKeyboardButton(text="❌ Нет", callback_data="new_player_ts:no"),
+    ]])
+    await message.answer("🎙 Есть TS?", reply_markup=keyboard)
+
+
+@dp.callback_query(F.data.startswith("new_player_ts:"))
+async def new_player_ts(callback: CallbackQuery, state: FSMContext):
+    if callback.message is None or not _is_allowed_chat(callback.message):
+        await callback.answer()
+        return
+    if not _is_officer(callback.message):
+        await callback.answer("Только офицер может заполнять анкету.", show_alert=True)
+        await state.clear()
+        return
+    value = "Да" if callback.data.endswith(":yes") else "Нет"
+    await state.update_data(ts=value)
+    await state.set_state(NewPlayerForm.telegram)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Да", callback_data="new_player_telegram:yes"),
+        InlineKeyboardButton(text="❌ Нет", callback_data="new_player_telegram:no"),
+    ]])
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("📱 Есть Telegram?", reply_markup=keyboard)
+
+
+@dp.callback_query(F.data.startswith("new_player_telegram:"))
+async def new_player_telegram(callback: CallbackQuery, state: FSMContext):
+    if callback.message is None or not _is_allowed_chat(callback.message):
+        await callback.answer()
+        return
+    if not _is_officer(callback.message):
+        await callback.answer("Только офицер может заполнять анкету.", show_alert=True)
+        await state.clear()
+        return
+
+    telegram = "Да" if callback.data.endswith(":yes") else "Нет"
+    data = await state.get_data()
+    callback_username = callback.from_user.username if callback.from_user else None
+    officer = storage.get_officer(callback_username)
+    accepted_by = officer[1] if officer else (callback_username or "")
+
+    try:
+        await asyncio.to_thread(
+            player_sheet.add_player,
+            data.get("nickname", ""),
+            data.get("level", ""),
+            data.get("player_class", ""),
+            accepted_by,
+            data.get("ts", ""),
+            telegram,
+        )
+    except GoogleSheetsError as exc:
+        await state.clear()
+        await callback.answer()
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(f"❌ Не удалось добавить игрока в таблицу.\n\n{exc}")
+        return
+    except Exception:
+        logging.exception("Google Sheets player add failed")
+        await state.clear()
+        await callback.answer()
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(
+            "❌ Не удалось записать игрока в Google Sheets. Проверь подключение таблицы и credentials."
+        )
+        return
+
+    nickname = data.get("nickname", "")
+    await state.clear()
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(
+        f"✅ Игрок «{nickname}» добавлен в таблицу.\n"
+        f"👑 Кто принял: {accepted_by or 'не указан'}"
+    )
+
+
+@dp.message(NewPlayerForm)
+async def new_player_form_fallback(message: Message, state: FSMContext):
+    await message.answer("Продолжаем заполнение анкеты. Используй текущий вопрос выше или начни заново: «Алина, добавь новенького».")
 
 
 @dp.message(F.new_chat_members)
