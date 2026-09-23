@@ -16,8 +16,8 @@ from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
-from app.youtube_monitor import monitor_forever
-from app.youtube_likes import like_video
+from app.youtube_monitor import monitor_forever, _latest_video
+from app.youtube_likes import like_video, get_video_rating
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -76,6 +76,32 @@ def _strip_urls(text: str) -> str:
 
 
 def _is_allowed_chat(message: Message) -> bool: return message.chat.id == settings.group_chat_id
+
+
+def _is_youtube_question(text: str) -> bool:
+    normalized = text.lower()
+    return (
+        ("ютуб" in normalized or "youtube" in normalized or "k4mui" in normalized)
+        and ("лайк" in normalized or "видео" in normalized or "ролик" in normalized)
+        and ("провер" in normalized or "точно" in normalized or "постав" in normalized or "лайкнула" in normalized or "лайкнул" in normalized)
+    )
+
+
+async def _youtube_status_answer() -> str:
+    latest = await asyncio.to_thread(_latest_video)
+    if not latest:
+        return "Не смогла проверить последний ролик @k4mui_play."
+    video_id, title, url, _published = latest
+    rating = await asyncio.to_thread(get_video_rating, video_id)
+    if rating == "like":
+        return f"Да 😌 Проверила — на последнем ролике «{title}» лайк от моего аккаунта уже стоит."
+    if rating == "dislike":
+        return f"Проверила 👀 На последнем ролике «{title}» сейчас стоит дизлайк."
+    if rating == "none":
+        return f"Проверила — на последнем ролике «{title}» лайка от моего аккаунта сейчас нет."
+    return f"Проверила — YouTube не показывает, что мой аккаунт поставил лайк на «{title}»."
+
+
 
 
 def _parse_watch_command(text: str):
@@ -368,6 +394,18 @@ async def on_message(message: Message):
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
 
     text = original_text
+
+    # Вопросы о YouTube-канале обрабатываем отдельно: Алина может
+    # проверить реальный статус лайка авторизованного аккаунта.
+    if _is_youtube_question(text):
+        try:
+            answer = await _youtube_status_answer()
+        except Exception:
+            logging.exception("YouTube status check failed")
+            answer = "Не смогла проверить статус лайка на YouTube. Авторизация аккаунта ещё не подключена или доступ временно недоступен."
+        await message.answer(answer, reply_to_message_id=message.message_id)
+        storage.add(message.chat.id, None, None, 'assistant', answer)
+        return
 
     # Если участник явно исправляет Алину, сохраняем это как приоритетную
     # корректировку знаний. Специальная команда не нужна.
