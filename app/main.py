@@ -420,9 +420,13 @@ def _clean_username(username: str | None) -> str:
     return (username or "").strip().lstrip("@").lower()
 
 
+def _is_officer_username(username: str | None) -> bool:
+    return bool(is_authorized(username) or storage.get_officer(username))
+
+
 def _is_officer(message: Message) -> bool:
     username = message.from_user.username if message.from_user else None
-    return bool(is_authorized(username) or storage.get_officer(username))
+    return _is_officer_username(username)
 
 
 def _parse_officer_add(text: str):
@@ -721,7 +725,7 @@ async def new_player_ts(callback: CallbackQuery, state: FSMContext):
     if callback.message is None or not _is_allowed_chat(callback.message):
         await callback.answer()
         return
-    if not _is_officer(callback.message):
+    if not _is_officer_username(callback.from_user.username if callback.from_user else None):
         await callback.answer("Только офицер может заполнять анкету.", show_alert=True)
         await state.clear()
         return
