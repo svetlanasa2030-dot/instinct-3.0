@@ -68,6 +68,18 @@ def _load_credentials() -> Credentials:
     return credentials
 
 
+def get_video_rating(video_id: str) -> str:
+    """Return the authorized account's current rating for a YouTube video."""
+    if not video_id:
+        return "unspecified"
+
+    credentials = _load_credentials()
+    youtube = build("youtube", "v3", credentials=credentials, cache_discovery=False)
+    response = youtube.videos().getRating(id=video_id).execute()
+    items = response.get("items", [])
+    return items[0].get("rating", "unspecified") if items else "unspecified"
+
+
 def like_video(video_id: str) -> bool:
     """Put a real Like on YouTube using the authorized Google account."""
     if not video_id:
