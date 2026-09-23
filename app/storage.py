@@ -26,7 +26,13 @@ class Storage:
                 messages TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (chat_id, user_id)
             )""")
-            conn.execute("""CREATE TABLE IF NOT EXISTS clan_memory (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                chat_id INTEGER NOT NULL,\n                memory TEXT NOT NULL,\n                created_at TEXT NOT NULL\n            )""")\n            conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_corrections (
+            conn.execute("""CREATE TABLE IF NOT EXISTS clan_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                memory TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_corrections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER NOT NULL,
                 correction TEXT NOT NULL,
