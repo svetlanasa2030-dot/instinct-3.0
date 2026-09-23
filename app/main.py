@@ -357,6 +357,38 @@ async def command_market(message: Message):
     await message.answer(market_summary(settings.db_path, message.chat.id))
 
 
+@dp.message(F.new_chat_members)
+async def on_new_chat_members(message: Message):
+    """Автоматически приветствует новых участников группы."""
+    if not _is_allowed_chat(message):
+        return
+
+    new_members = [member for member in (message.new_chat_members or []) if not (_bot_id and member.id == _bot_id)]
+    if not new_members:
+        return
+
+    greetings = [
+        "Добро пожаловать, {name}! 👋 Осваивайся, у нас тут весело 😏",
+        "О, новенький! {name}, добро пожаловать в клан 👀",
+        "Встречаем {name}! 👋 Заходи, располагайся.",
+        "{name}, добро пожаловать! 😌 Теперь ты официально с нами.",
+        "Так-так, к нам прибыло подкрепление — {name}! 🔥 Добро пожаловать!",
+    ]
+
+    names = [member.full_name or member.first_name or "новенький" for member in new_members]
+    if len(names) == 1:
+        text = random.choice(greetings).format(name=names[0])
+    else:
+        text = "Добро пожаловать в клан! 👋\\n\\n" + "\\n".join(f"• {name}" for name in names)
+        text += "\\n\\nОсваивайтесь, теперь вы с нами 😏"
+
+    await message.bot.send_message(
+        settings.group_chat_id,
+        text,
+        message_thread_id=2,
+    )
+
+
 @dp.message(F.text)
 async def on_message(message: Message):
     global _bot_id
