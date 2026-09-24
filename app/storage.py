@@ -43,6 +43,20 @@ class Storage:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS recruits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                game_nickname TEXT NOT NULL,
+                level TEXT,
+                class_name TEXT,
+                teamspeak TEXT,
+                telegram TEXT,
+                added_by_user_id INTEGER,
+                added_by_username TEXT,
+                added_by_display_name TEXT,
+                created_at TEXT NOT NULL
+            )""")
+
 
     def _conn(self):
         return sqlite3.connect(self.db_path)
@@ -158,3 +172,53 @@ class Storage:
                 "SELECT id, correction, created_at FROM knowledge_corrections WHERE chat_id=? ORDER BY id DESC LIMIT ?",
                 (chat_id, limit),
             ).fetchall()
+
+
+    def add_recruit(self, chat_id: int, game_nickname: str, level: str, class_name: str,
+                    teamspeak: str, telegram: str, added_by_user_id: int | None,
+                    added_by_username: str | None, added_by_display_name: str | None):
+        game_nickname = game_nickname.strip()
+        if not game_nickname:
+            return False
+        with self._conn() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM recruits WHERE chat_id=? AND lower(game_nickname)=lower(?) LIMIT 1",
+                (chat_id, game_nickname),
+            ).fetchone()
+            if exists:
+                return False
+            conn.execute(
+                """INSERT INTO recruits(
+                    chat_id, game_nickname, level, class_name, teamspeak, telegram,
+                    added_by_user_id, added_by_username, added_by_display_name, created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    chat_id, game_nickname, level.strip(), class_name.strip(),
+                    teamspeak.strip(), telegram.strip(), added_by_user_id,
+                    added_by_username.lower().lstrip("@").strip() if added_by_username else None,
+                    added_by_display_name, datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        return True
+
+    def recruits_by_adder(self, chat_id: int, username: str):
+        username = username.lower().lstrip("@").strip()
+        with self._conn() as conn:
+            return conn.execute(
+                """SELECT game_nickname, level, class_name, teamspeak, telegram, created_at
+                   FROM recruits
+                   WHERE chat_id=? AND lower(COALESCE(added_by_username,''))=?
+                   ORDER BY id ASC""",
+                (chat_id, username),
+            ).fetchall()
+
+    def recruit_by_nickname(self, chat_id: int, game_nickname: str):
+        with self._conn() as conn:
+            return conn.execute(
+                """SELECT game_nickname, level, class_name, teamspeak, telegram,
+                          added_by_username, added_by_display_name, created_at
+                   FROM recruits
+                   WHERE chat_id=? AND lower(game_nickname)=lower(?)
+                   ORDER BY id DESC LIMIT 1""",
+                (chat_id, game_nickname.strip()),
+            ).fetchone()
