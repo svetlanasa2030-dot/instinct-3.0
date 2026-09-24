@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
 
 from app.ai import AIEngine
@@ -708,21 +709,21 @@ async def command_memories(message: Message):
     await message.answer('\n'.join(lines))
 
 
-@dp.message(F.text.startswith('/start'))
+@dp.message(Command('start'))
 async def command_start(message: Message):
     if not _is_allowed_chat(message): return
     storage.set_chat_enabled(message.chat.id, True)
     await message.answer('🟢 Бот запущен. Теперь отвечаю на сообщения.')
 
 
-@dp.message(F.text.startswith('/stop'))
+@dp.message(Command('stop'))
 async def command_stop(message: Message):
     if not _is_allowed_chat(message): return
     storage.set_chat_enabled(message.chat.id, False)
     await message.answer('🔴 Бот остановлен. Команду /start можно использовать для запуска.')
 
 
-@dp.message(F.text.startswith('/status'))
+@dp.message(Command('status'))
 async def command_status(message: Message):
     if not _is_allowed_chat(message): return
     await message.answer(f"Статус бота: {'🟢 запущен' if storage.is_chat_enabled(message.chat.id) else '🔴 остановлен'}.")
