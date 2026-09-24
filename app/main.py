@@ -300,12 +300,26 @@ def _normalize_username(username: str | None) -> str:
 def _parse_recruiter_query(text: str):
     normalized = text.strip()
     match = re.search(
-        r"(?i)\bкого\s+(?:ты\s+)?(?:принял|приняла|принимал|принимала)\s+@?([A-Za-z0-9_]+)",
+        r"(?iu)\bкого\s+(?:ты\s+)?(?:принял|приняла|приняли|принимал|принимала|принимали)\s+@?([A-Za-z0-9_]+)",
         normalized,
     )
     if match:
         return match.group(1)
     return None
+
+
+@dp.message(
+    F.text,
+    lambda message: (
+        _is_allowed_chat(message)
+        and _addressed_to_alina((message.text or "").strip())
+        and _parse_recruiter_query((message.text or "").strip()) is not None
+    ),
+)
+async def recruiter_history_query(message: Message):
+    # Отдельный обработчик стоит перед анкетой, чтобы запрос истории
+    # никогда не попадал в обработчик /newbie.
+    await command_recruiter_list(message)
 
 
 @dp.message(F.text, lambda message: _is_allowed_chat(message) and (message.text or "").strip().lower().startswith("/newbie"))
