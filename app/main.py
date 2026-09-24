@@ -42,6 +42,10 @@ _reminder_task: asyncio.Task | None = None
 _youtube_task: asyncio.Task | None = None
 _random_events_task: asyncio.Task | None = None
 _morning_greeting_task: asyncio.Task | None = None
+_newbie_sessions: dict[int, dict] = {}
+_NEWBIE_YES = {"да", "д", "yes", "y", "конечно"}
+_NEWBIE_NO = {"нет", "н", "no", "n"}
+
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
@@ -268,6 +272,206 @@ async def command_consultant(message: Message):
     await message.answer('Откройте мой ИИ-консультант прямо внутри Telegram:', reply_markup=keyboard)
 
 
+
+def _newbie_prompt(message: Message) -> str:
+    return (
+        "📝 Заполняем новичка. Я задам несколько вопросов.\n\n"
+        "1️⃣ Игровой ник:"
+    )
+
+
+def _normalize_username(username: str | None) -> str:
+    return (username or "").strip().lstrip("@").lower()
+
+
+def _parse_recruiter_query(text: str):
+    normalized = text.strip()
+    match = re.search(
+        r"(?i)\bкого\s+(?:ты\s+)?(?:принял|приняла|принимал|принимала)\s+@?([A-Za-z0-9_]+)",
+        normalized,
+    )
+    if match:
+        return match.group(1)
+    return None
+
+
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and (message.text or "").strip().lower().startswith("/newbie"))
+async def command_newbie(message: Message):
+    user_id = message.from_user.id if message.from_user else None
+    if not user_id:
+        return
+    _newbie_sessions[user_id] = {
+        "chat_id": message.chat.id,
+        "step": "game_nickname",
+        "data": {},
+    }
+    await message.answer(
+        "📝 Заполняем анкету новичка.\n\n"
+        "🎮 Игровой ник:"
+    )
+
+
+@dp.message(F.text, lambda message: bool(message.from_user and message.from_user.id in _newbie_sessions))
+async def newbie_form_message(message: Message):
+    user_id = message.from_user.id
+    text = (message.text or "").strip()
+    session = _newbie_sessions.get(user_id)
+    if not session or session["chat_id"] != message.chat.id:
+        return
+
+    if text.lower().startswith("/newbie"):
+        session["step"] = "game_nickname"
+        session["data"] = {}
+        await message.answer("🎮 Игровой ник:")
+        return
+
+    step = session["step"]
+    data = session["data"]
+
+    if step == "game_nickname":
+        if len(text) < 2:
+            await message.answer("Напиши игровой ник.")
+            return
+        data["game_nickname"] = text[:100]
+        session["step"] = "level"
+        await message.answer("⭐ Уровень:")
+        return
+
+    if step == "level":
+        data["level"] = text[:50]
+        session["step"] = "class_name"
+        await message.answer("⚔️ Класс:")
+        return
+
+    if step == "class_name":
+        data["class_name"] = text[:100]
+        session["step"] = "teamspeak"
+        await message.answer("🎧 TeamSpeak: Да или Нет?")
+        return
+
+    if step == "teamspeak":
+        answer = text.lower()
+        if answer not in _NEWBIE_YES and answer not in _NEWBIE_NO:
+            await message.answer("Напиши «Да» или «Нет».")
+            return
+        data["teamspeak"] = "Да" if answer in _NEWBIE_YES else "Нет"
+        session["step"] = "telegram"
+        await message.answer("📱 Telegram: Да или Нет?")
+        return
+
+    if step == "telegram":
+        answer = text.lower()
+        if answer not in _NEWBIE_YES and answer not in _NEWBIE_NO:
+            await message.answer("Напиши «Да» или «Нет».")
+            return
+        data["telegram"] = "Да" if answer in _NEWBIE_YES else "Нет"
+        session["step"] = "confirm"
+        await message.answer(
+            "📋 Проверь анкету:\n\n"
+            f"🎮 Игровой ник: {data['game_nickname']}\n"
+            f"⭐ Уровень: {data['level']}\n"
+            f"⚔️ Класс: {data['class_name']}\n"
+            f"🎧 TeamSpeak: {data['teamspeak']}\n"
+            f"📱 Telegram: {data['telegram']}\n\n"
+            "Всё верно?",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="✅ Принять", callback_data="newbie_confirm"),
+                InlineKeyboardButton(text="✏️ Заполнить заново", callback_data="newbie_restart"),
+            ]]),
+        )
+        return
+
+
+@dp.callback_query(F.data.in_({"newbie_confirm", "newbie_restart"}))
+async def newbie_callback(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    session = _newbie_sessions.get(user_id)
+    if callback.message is None or not session or session["chat_id"] != callback.message.chat.id:
+        await callback.answer()
+        return
+
+    if callback.data == "newbie_restart":
+        session["step"] = "game_nickname"
+        session["data"] = {}
+        await callback.answer("Заполняем заново")
+        await callback.message.answer("🎮 Игровой ник:")
+        return
+
+    data = session["data"]
+    added_by_username = _normalize_username(callback.from_user.username)
+    added_by_display_name = callback.from_user.full_name or callback.from_user.first_name or ""
+    ok = storage.add_recruit(
+        session["chat_id"],
+        data["game_nickname"],
+        data["level"],
+        data["class_name"],
+        data["teamspeak"],
+        data["telegram"],
+        user_id,
+        added_by_username or None,
+        added_by_display_name,
+    )
+    if not ok:
+        await callback.answer("Такой игрок уже есть", show_alert=True)
+        await callback.message.answer(
+            f"⚠️ Игрок **{data['game_nickname']}** уже есть в базе принятых.",
+            parse_mode="Markdown",
+        )
+        _newbie_sessions.pop(user_id, None)
+        return
+
+    _newbie_sessions.pop(user_id, None)
+    await callback.answer("Сохранено")
+    recruiter = f"@{added_by_username}" if added_by_username else added_by_display_name
+    await callback.message.answer(
+        f"✅ Игрок **{data['game_nickname']}** принят и сохранён в базе Алины.\n"
+        f"👤 Принял: {recruiter}",
+        parse_mode="Markdown",
+    )
+
+
+@dp.message(
+    F.text,
+    lambda message: _is_allowed_chat(message)
+    and _addressed_to_alina((message.text or "").strip())
+    and _parse_recruiter_query((message.text or "").strip()) is not None,
+)
+async def command_recruiter_list(message: Message):
+    recruiter = _parse_recruiter_query(message.text or "")
+    if not recruiter:
+        return
+    rows = storage.recruits_by_adder(message.chat.id, recruiter)
+    if not rows:
+        await message.answer(f"📋 У @{recruiter} пока нет записанных через /newbie игроков.")
+        return
+
+    header = f"📋 Игроки, которых принял @{recruiter}:\n\n"
+    blocks = []
+    for index, (nickname, level, class_name, teamspeak, telegram, created_at) in enumerate(rows, 1):
+        date_text = created_at[:10]
+        blocks.append(
+            f"{index}. 🎮 {nickname}\n"
+            f"   ⭐ {level or '—'} | ⚔️ {class_name or '—'}\n"
+            f"   🎧 TS: {teamspeak or '—'} | 📱 TG: {telegram or '—'}\n"
+            f"   📅 {date_text}"
+        )
+
+    chunks = []
+    current = header
+    for block in blocks:
+        candidate = current + block + "\n\n"
+        if len(candidate) > 3800 and current != header:
+            chunks.append(current.rstrip())
+            current = block + "\n\n"
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current.rstrip())
+
+    for chunk in chunks:
+        await message.answer(chunk)
+
+
 @dp.message(F.text.startswith('/remember'))
 async def command_remember(message: Message):
     if not _is_allowed_chat(message): return
@@ -453,7 +657,7 @@ async def on_message(message: Message):
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     display_name = message.from_user.full_name if message.from_user else None
