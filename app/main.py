@@ -334,7 +334,15 @@ async def command_newbie(message: Message):
     storage.save_newbie_message_ids(message.chat.id, user_id, questionnaire_message_id=prompt_message.message_id)
 
 
-@dp.message(F.text, lambda message: bool(message.from_user and message.from_user.id in _newbie_sessions))
+@dp.message(
+    F.text,
+    lambda message: bool(message.from_user and message.from_user.id in _newbie_sessions)
+    and not (
+        _is_allowed_chat(message)
+        and _addressed_to_alina((message.text or "").strip())
+        and _parse_recruiter_query((message.text or "").strip()) is not None
+    ),
+)
 async def newbie_form_message(message: Message):
     user_id = message.from_user.id
     text = (message.text or "").strip()
