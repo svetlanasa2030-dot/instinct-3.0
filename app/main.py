@@ -78,6 +78,17 @@ def _strip_urls(text: str) -> str:
 def _is_allowed_chat(message: Message) -> bool: return message.chat.id == settings.group_chat_id
 
 
+@dp.message(
+    F.text,
+    lambda message: _is_allowed_chat(message)
+    and re.sub(r'[,:!?]+', ' ', (message.text or '').strip()).strip().lower()
+    in {'алина', 'алина привет', 'алина ты тут', 'алина ты здесь', 'алина ау', 'алина ало', 'алина откликнись'}
+)
+async def direct_alina_ping(message: Message):
+    """Быстрый ответ на простые обращения, не зависящий от ИИ."""
+    await message.answer("Да, я здесь 🙂", reply_to_message_id=message.message_id)
+
+
 def _is_youtube_question(text: str) -> bool:
     normalized = text.lower()
     return (
