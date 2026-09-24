@@ -67,6 +67,14 @@ class Storage:
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (chat_id, user_id)
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS newbie_draft_messages (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                questionnaire_message_id INTEGER,
+                confirmation_message_id INTEGER,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, user_id)
+            )""")
 
 
     def _conn(self):
@@ -274,5 +282,40 @@ class Storage:
         with self._conn() as conn:
             conn.execute(
                 "DELETE FROM newbie_drafts WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            )
+
+    def save_newbie_message_ids(self, chat_id: int, user_id: int, questionnaire_message_id: int | None = None,
+                                confirmation_message_id: int | None = None):
+        with self._conn() as conn:
+            current = conn.execute(
+                "SELECT questionnaire_message_id, confirmation_message_id FROM newbie_draft_messages WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            ).fetchone()
+            qid = questionnaire_message_id if questionnaire_message_id is not None else (current[0] if current else None)
+            cid = confirmation_message_id if confirmation_message_id is not None else (current[1] if current else None)
+            conn.execute(
+                """INSERT INTO newbie_draft_messages(
+                    chat_id,user_id,questionnaire_message_id,confirmation_message_id,updated_at
+                ) VALUES(?,?,?,?,?)
+                ON CONFLICT(chat_id,user_id) DO UPDATE SET
+                    questionnaire_message_id=excluded.questionnaire_message_id,
+                    confirmation_message_id=excluded.confirmation_message_id,
+                    updated_at=excluded.updated_at""",
+                (chat_id, user_id, qid, cid, datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_newbie_message_ids(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            return conn.execute(
+                """SELECT questionnaire_message_id, confirmation_message_id
+                   FROM newbie_draft_messages WHERE chat_id=? AND user_id=?""",
+                (chat_id, user_id),
+            ).fetchone()
+
+    def delete_newbie_message_ids(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM newbie_draft_messages WHERE chat_id=? AND user_id=?",
                 (chat_id, user_id),
             )
