@@ -75,6 +75,13 @@ class Storage:
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (chat_id, user_id)
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS newbie_message_log (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, user_id, message_id)
+            )""")
 
 
     def _conn(self):
@@ -327,5 +334,27 @@ class Storage:
         with self._conn() as conn:
             conn.execute(
                 "DELETE FROM newbie_draft_messages WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            )
+
+    def add_newbie_message(self, chat_id: int, user_id: int, message_id: int):
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO newbie_message_log(chat_id,user_id,message_id,created_at)
+                   VALUES(?,?,?,?)""",
+                (chat_id, user_id, message_id, datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_newbie_messages(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            return [row[0] for row in conn.execute(
+                "SELECT message_id FROM newbie_message_log WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            ).fetchall()]
+
+    def delete_newbie_messages(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM newbie_message_log WHERE chat_id=? AND user_id=?",
                 (chat_id, user_id),
             )
