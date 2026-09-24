@@ -4,6 +4,7 @@ import re
 import random
 import json
 import urllib.request
+import urllib.error
 from pathlib import Path
 from datetime import datetime
 
@@ -80,20 +81,69 @@ async def _send_recruit_to_google_sheets(
         ),
     }
 
+    class _PreservePostRedirect(urllib.request.HTTPRedirectHandler):
+        """Google Apps Script часто отвечает редиректом; сохраняем POST при переходе."""
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            if code in (301, 302, 303, 307, 308) and req.data is not None:
+                return urllib.request.Request(
+                    newurl,
+                    data=req.data,
+                    headers=dict(req.header_items()),
+                    origin_req_host=req.origin_req_host,
+                    unverifiable=True,
+                    method="POST",
+                )
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
     def _post():
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             GOOGLE_SHEETS_WEBHOOK,
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Accept": "application/json",
+            },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return response.read().decode("utf-8", errors="replace")
+        opener = urllib.request.build_opener(_PreservePostRedirect())
+        try:
+            with opener.open(request, timeout=20) as response:
+                result = response.read().decode("utf-8", errors="replace")
+                logging.info(
+                    "[GOOGLE SHEETS] HTTP %s, final_url=%s, body=%s",
+                    response.status,
+                    response.geturl(),
+                    result[:1000],
+                )
+                return response.status, result
+        except urllib.error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="replace")
+            logging.error(
+                "[GOOGLE SHEETS] HTTP ERROR %s, url=%s, body=%s",
+                exc.code,
+                exc.geturl(),
+                error_body[:2000],
+            )
+            raise
 
     try:
-        result = await asyncio.to_thread(_post)
-        logging.info("[GOOGLE SHEETS] Recruit synced: %s", result)
+        status, result = await asyncio.to_thread(_post)
+        try:
+            response_data = json.loads(result)
+        except json.JSONDecodeError:
+            response_data = {}
+
+        if status != 200 or response_data.get("ok") is False:
+            logging.error(
+                "[GOOGLE SHEETS] Apps Script rejected recruit: status=%s response=%s",
+                status,
+                result[:2000],
+            )
+            return False
+
+        logging.info("[GOOGLE SHEETS] Recruit synced successfully: %s", result)
         return True
     except Exception:
         logging.exception("[GOOGLE SHEETS] Failed to sync recruit")
