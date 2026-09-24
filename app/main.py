@@ -326,8 +326,9 @@ async def command_newbie(message: Message):
         "⚔️ Класс:\n"
         "🎧 TeamSpeak: Да / Нет\n"
         "📱 Telegram: Да / Нет\n\n"
-        "Отправь <b>одним сообщением</b> 5 строк в таком порядке:\n"
-        "<code>ИгровойНик\n146\nСин\nДа\nДа</code>",
+        "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
+        "<code>ИгровойНик, 146, Син, Да, Да</code>\n\n"
+        "Например: <code>Малком, 100, Син, Да, Да</code>",
         parse_mode="HTML",
     )
 
@@ -356,30 +357,35 @@ async def newbie_form_message(message: Message):
             "⚔️ Класс:\n"
             "🎧 TeamSpeak: Да / Нет\n"
             "📱 Telegram: Да / Нет\n\n"
-            "Отправь <b>одним сообщением</b> 5 строк в таком порядке:\n"
-            "<code>ИгровойНик\n146\nСин\nДа\nДа</code>",
+            "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
+            "<code>ИгровойНик, 146, Син, Да, Да</code>\n\n"
+            "Например: <code>Малком, 100, Син, Да, Да</code>",
             parse_mode="HTML",
         )
         return
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) != 5:
+    # Анкету заполняем одним сообщением через запятую:
+    # Игровой ник, уровень, класс, TeamSpeak, Telegram
+    fields = [part.strip() for part in text.split(",")]
+    if len(fields) != 5:
         await message.answer(
-            "⚠️ Нужно отправить ровно 5 строк одним сообщением:\n"
-            "1. Игровой ник\n2. Уровень\n3. Класс\n4. TeamSpeak: Да/Нет\n5. Telegram: Да/Нет"
+            "⚠️ Отправь анкету одним сообщением через запятую:\n\n"
+            "<code>Малком, 100, Син, Да, Да</code>\n\n"
+            "Порядок: игровой ник, уровень, класс, TeamSpeak, Telegram.",
+            parse_mode="HTML",
         )
         return
 
-    teamspeak = lines[3].lower()
-    telegram = lines[4].lower()
+    teamspeak = fields[3].lower()
+    telegram = fields[4].lower()
     if teamspeak not in _NEWBIE_YES | _NEWBIE_NO or telegram not in _NEWBIE_YES | _NEWBIE_NO:
         await message.answer("⚠️ В строках TeamSpeak и Telegram укажи только «Да» или «Нет».")
         return
 
     data = {
-        "game_nickname": lines[0][:100],
-        "level": lines[1][:50],
-        "class_name": lines[2][:100],
+        "game_nickname": fields[0][:100],
+        "level": fields[1][:50],
+        "class_name": fields[2][:100],
         "teamspeak": "Да" if teamspeak in _NEWBIE_YES else "Нет",
         "telegram": "Да" if telegram in _NEWBIE_YES else "Нет",
     }
