@@ -579,7 +579,10 @@ def _parse_analytics_command(text: str):
     return target or "all"
 
 
-@dp.message(F.text)
+@dp.message(
+    F.text,
+    lambda message: _parse_analytics_command((message.text or "").strip()) is not None,
+)
 async def command_analytics(message: Message):
     if not _is_allowed_chat(message):
         return
