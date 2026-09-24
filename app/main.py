@@ -342,6 +342,9 @@ def _normalize_username(username: str | None) -> str:
 
 def _parse_recruiter_query(text: str):
     normalized = text.strip()
+    # «Кого я принял/приняла?» — это запрос самого отправителя.
+    if re.search(r"(?iu)\bкого\s+я\s+(?:принял|приняла|принимал|принимала|внёс|внесла|записал|записала)\b", normalized):
+        return "__SELF__"
     match = re.search(
         r"(?iu)\bкого\s+(?:ты\s+)?(?:принял|приняла|приняли|принимал|принимала|принимали|внёс|внес|внесла|внесли|записал|записала|записали)\s+@?([a-z0-9_]+)",
         normalized,
@@ -360,8 +363,7 @@ def _parse_recruiter_query(text: str):
     ),
 )
 async def recruiter_history_query(message: Message):
-    # Отдельный обработчик стоит перед анкетой, чтобы запрос истории
-    # никогда не попадал в обработчик /newbie.
+    # История рекрутирования всегда обрабатывается отдельно от /newbie.
     await command_recruiter_list(message)
 
 
@@ -567,12 +569,21 @@ async def command_recruiter_list(message: Message):
     recruiter = _parse_recruiter_query(message.text or "")
     if not recruiter:
         return
-    rows = storage.recruits_by_adder(message.chat.id, recruiter)
+
+    if recruiter == "__SELF__":
+        username = _normalize_username(message.from_user.username if message.from_user else None)
+        user_id = message.from_user.id if message.from_user else None
+        rows = storage.recruits_by_adder_user_id(message.chat.id, user_id) if user_id else []
+        display = f"@{username}" if username else (message.from_user.full_name if message.from_user else "ты")
+    else:
+        rows = storage.recruits_by_adder(message.chat.id, recruiter)
+        display = f"@{recruiter}"
+
     if not rows:
-        await message.answer(f"📋 У @{recruiter} пока нет записанных через /newbie игроков.")
+        await message.answer(f"📋 У {display} пока нет записанных через /newbie игроков.")
         return
 
-    header = f"📋 Игроки, которых принял @{recruiter}:\n\n"
+    header = f"📋 Игроки, которых принял {display}:\n\n"
     blocks = []
     for index, (nickname, level, class_name, teamspeak, telegram, created_at) in enumerate(rows, 1):
         date_text = created_at[:10]
