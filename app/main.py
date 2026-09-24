@@ -569,6 +569,65 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         raise
 
 
+def _parse_analytics_command(text: str):
+    match = re.match(r"^/analytics(?:@\\w+)?(?:\\s+(.+))?\\s*$", text or "", re.I)
+    if not match:
+        return None
+    target = (match.group(1) or "all").strip()
+    return target or "all"
+
+
+@dp.message(F.text)
+async def command_analytics(message: Message):
+    if not _is_allowed_chat(message):
+        return
+    target = _parse_analytics_command(message.text or "")
+    if target is None:
+        return
+
+    if target.lower() in {"all", "все", "всё"}:
+        total, by_adder = storage.recruit_analytics_all(message.chat.id)
+        if not total:
+            await message.answer("📊 Аналитика набора пока пустая.")
+            return
+
+        lines = [
+            "📊 <b>Аналитика набора</b>",
+            "",
+            f"👥 Всего принято: <b>{total}</b>",
+            "",
+            "👤 <b>По игрокам, которые принимали:</b>",
+        ]
+        for username, display_name, count in by_adder:
+            who = f"@{username}" if username else (display_name or "неизвестно")
+            lines.append(f"• {who} — <b>{count}</b>")
+
+        await message.answer("\\n".join(lines), parse_mode="HTML")
+        return
+
+    target = target.lstrip("@").strip()
+    rows = storage.recruit_analytics_user(message.chat.id, target)
+    if not rows:
+        await message.answer(f"📊 У @{target} пока нет принятых через /newbie игроков.")
+        return
+
+    lines = [
+        "📊 <b>Аналитика набора</b>",
+        "",
+        f"👤 Участник: <b>@{target}</b>",
+        f"👥 Принято: <b>{len(rows)}</b>",
+        "",
+        "📋 <b>Список:</b>",
+    ]
+    for index, (nickname, level, class_name, teamspeak, telegram, created_at) in enumerate(rows, 1):
+        lines.append(
+            f"{index}. {nickname} — {level or '—'}, {class_name or '—'} "
+            f"({created_at[:10]})"
+        )
+
+    await message.answer("\\n".join(lines), parse_mode="HTML")
+
+
 @dp.message(
     F.text,
     lambda message: _is_allowed_chat(message)
