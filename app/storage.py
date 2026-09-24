@@ -56,6 +56,17 @@ class Storage:
                 added_by_display_name TEXT,
                 created_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS newbie_drafts (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                game_nickname TEXT NOT NULL DEFAULT '',
+                level TEXT NOT NULL DEFAULT '',
+                class_name TEXT NOT NULL DEFAULT '',
+                teamspeak TEXT NOT NULL DEFAULT '',
+                telegram TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, user_id)
+            )""")
 
 
     def _conn(self):
@@ -222,3 +233,46 @@ class Storage:
                    ORDER BY id DESC LIMIT 1""",
                 (chat_id, game_nickname.strip()),
             ).fetchone()
+
+    def save_newbie_draft(self, chat_id: int, user_id: int, data: dict):
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO newbie_drafts(
+                    chat_id,user_id,game_nickname,level,class_name,teamspeak,telegram,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(chat_id,user_id) DO UPDATE SET
+                    game_nickname=excluded.game_nickname,
+                    level=excluded.level,
+                    class_name=excluded.class_name,
+                    teamspeak=excluded.teamspeak,
+                    telegram=excluded.telegram,
+                    updated_at=excluded.updated_at""",
+                (
+                    chat_id, user_id,
+                    data.get("game_nickname",""),
+                    data.get("level",""),
+                    data.get("class_name",""),
+                    data.get("teamspeak",""),
+                    data.get("telegram",""),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+
+    def get_newbie_draft(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT game_nickname,level,class_name,teamspeak,telegram
+                   FROM newbie_drafts WHERE chat_id=? AND user_id=?""",
+                (chat_id, user_id),
+            ).fetchone()
+        if not row:
+            return None
+        keys = ("game_nickname","level","class_name","teamspeak","telegram")
+        return dict(zip(keys, row))
+
+    def delete_newbie_draft(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM newbie_drafts WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            )
