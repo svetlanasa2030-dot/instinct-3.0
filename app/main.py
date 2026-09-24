@@ -319,7 +319,7 @@ async def command_newbie(message: Message):
         "data": {},
     }
     storage.save_newbie_draft(message.chat.id, user_id, {})
-    await message.answer(
+    prompt_message = await message.answer(
         "📝 <b>Анкета новичка</b>\n\n"
         "🎮 Игровой ник:\n"
         "⭐ Уровень:\n"
@@ -327,10 +327,10 @@ async def command_newbie(message: Message):
         "🎧 TeamSpeak: Да / Нет\n"
         "📱 Telegram: Да / Нет\n\n"
         "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
-        "<code>ИгровойНик, 146, Син, Да, Да</code>\n\n"
-        "Например: <code>Малком, 100, Син, Да, Да</code>",
+        "<code>ИгровойНик, 146, Син, Да, Да</code>",
         parse_mode="HTML",
     )
+    _newbie_sessions[user_id]["questionnaire_message_id"] = prompt_message.message_id
 
 
 @dp.message(F.text, lambda message: bool(message.from_user and message.from_user.id in _newbie_sessions))
@@ -358,8 +358,7 @@ async def newbie_form_message(message: Message):
             "🎧 TeamSpeak: Да / Нет\n"
             "📱 Telegram: Да / Нет\n\n"
             "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
-            "<code>ИгровойНик, 146, Син, Да, Да</code>\n\n"
-            "Например: <code>Малком, 100, Син, Да, Да</code>",
+            "<code>ИгровойНик, 146, Син, Да, Да</code>",
             parse_mode="HTML",
         )
         return
@@ -446,15 +445,26 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         storage.delete_newbie_draft(chat_id, user_id)
         return
 
+    # Сначала сохраняем запись, затем убираем оба служебных сообщения анкеты.
+    session_for_delete = _newbie_sessions.get(user_id)
+    questionnaire_message_id = (
+        session_for_delete.get("questionnaire_message_id")
+        if session_for_delete else None
+    )
     _newbie_sessions.pop(user_id, None)
     storage.delete_newbie_draft(chat_id, user_id)
 
-    # Анкета уже сохранена в SQLite, поэтому само сообщение с формой
-    # можно убрать из чата после нажатия «Принять».
     try:
+        # Сообщение «Проверь анкету» с кнопками.
         await callback.message.delete()
     except Exception as exc:
-        logging.warning("Could not delete accepted newbie questionnaire: %s", exc)
+        logging.warning("Could not delete newbie confirmation message: %s", exc)
+
+    if questionnaire_message_id:
+        try:
+            await callback.bot.delete_message(chat_id, questionnaire_message_id)
+        except Exception as exc:
+            logging.warning("Could not delete newbie questionnaire message: %s", exc)
 
 
 @dp.message(
