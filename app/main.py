@@ -423,7 +423,7 @@ async def newbie_confirm_callback(callback: CallbackQuery):
     added_by_username = _normalize_username(callback.from_user.username)
     added_by_display_name = callback.from_user.full_name or callback.from_user.first_name or ""
     ok = storage.add_recruit(
-        session["chat_id"],
+        chat_id,
         data["game_nickname"],
         data["level"],
         data["class_name"],
@@ -445,7 +445,6 @@ async def newbie_confirm_callback(callback: CallbackQuery):
 
     _newbie_sessions.pop(user_id, None)
     storage.delete_newbie_draft(chat_id, user_id)
-    await callback.message.answer
     recruiter = f"@{added_by_username}" if added_by_username else added_by_display_name
     await callback.message.answer(
         f"✅ Игрок **{data['game_nickname']}** принят и сохранён в базе Алины.\n"
