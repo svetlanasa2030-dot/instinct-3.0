@@ -32,6 +32,17 @@ class Storage:
                 memory TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS clan_recruit_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                player_nickname TEXT NOT NULL,
+                player_class TEXT,
+                level TEXT,
+                accepted_by_user_id INTEGER,
+                accepted_by_username TEXT,
+                accepted_by_display_name TEXT,
+                created_at TEXT NOT NULL
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_corrections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER NOT NULL,
@@ -358,3 +369,27 @@ class Storage:
                 "DELETE FROM newbie_message_log WHERE chat_id=? AND user_id=?",
                 (chat_id, user_id),
             )
+
+    def add_clan_recruit_memory(self, chat_id: int, player_nickname: str, player_class: str, level: str,
+                                accepted_by_user_id: int | None, accepted_by_username: str | None,
+                                accepted_by_display_name: str | None):
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO clan_recruit_memory(
+                    chat_id,player_nickname,player_class,level,
+                    accepted_by_user_id,accepted_by_username,accepted_by_display_name,created_at
+                ) VALUES(?,?,?,?,?,?,?,?)""",
+                (chat_id, player_nickname.strip(), player_class.strip(), level.strip(),
+                 accepted_by_user_id, accepted_by_username, accepted_by_display_name,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+
+    def clan_recruits_by_player(self, chat_id: int, player_nickname: str):
+        with self._conn() as conn:
+            return conn.execute(
+                """SELECT player_nickname,player_class,level,accepted_by_username,accepted_by_display_name
+                   FROM clan_recruit_memory
+                   WHERE chat_id=? AND lower(player_nickname)=lower(?)
+                   ORDER BY id DESC""",
+                (chat_id, player_nickname.strip()),
+            ).fetchall()
