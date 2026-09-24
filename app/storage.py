@@ -259,6 +259,33 @@ class Storage:
                 (chat_id, user_id),
             ).fetchall()
 
+    def recruit_analytics_all(self, chat_id: int):
+        with self._conn() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM recruits WHERE chat_id=?", (chat_id,)
+            ).fetchone()[0]
+            by_adder = conn.execute(
+                """SELECT added_by_username, added_by_display_name, COUNT(*) AS total
+                   FROM recruits
+                   WHERE chat_id=?
+                   GROUP BY added_by_user_id, added_by_username, added_by_display_name
+                   ORDER BY total DESC, COALESCE(added_by_username, added_by_display_name, '') ASC""",
+                (chat_id,),
+            ).fetchall()
+        return total, by_adder
+
+    def recruit_analytics_user(self, chat_id: int, username: str):
+        username = username.lower().lstrip("@").strip()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT game_nickname, level, class_name, teamspeak, telegram, created_at
+                   FROM recruits
+                   WHERE chat_id=? AND lower(COALESCE(added_by_username,''))=?
+                   ORDER BY id ASC""",
+                (chat_id, username),
+            ).fetchall()
+        return rows
+
     def recruit_by_nickname(self, chat_id: int, game_nickname: str):
         with self._conn() as conn:
             return conn.execute(
