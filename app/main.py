@@ -315,13 +315,20 @@ async def command_newbie(message: Message):
         return
     _newbie_sessions[user_id] = {
         "chat_id": message.chat.id,
-        "step": "game_nickname",
+        "step": "form",
         "data": {},
     }
     storage.save_newbie_draft(message.chat.id, user_id, {})
     await message.answer(
-        "📝 Заполняем анкету новичка.\n\n"
-        "🎮 Игровой ник:"
+        "📝 <b>Анкета новичка</b>\n\n"
+        "🎮 Игровой ник:\n"
+        "⭐ Уровень:\n"
+        "⚔️ Класс:\n"
+        "🎧 TeamSpeak: Да / Нет\n"
+        "📱 Telegram: Да / Нет\n\n"
+        "Отправь <b>одним сообщением</b> 5 строк в таком порядке:\n"
+        "<code>ИгровойНик\n146\nСин\nДа\nДа</code>",
+        parse_mode="HTML",
     )
 
 
@@ -333,77 +340,67 @@ async def newbie_form_message(message: Message):
     if not session or session["chat_id"] != message.chat.id:
         draft = storage.get_newbie_draft(message.chat.id, user_id)
         if draft:
-            session = {"chat_id": message.chat.id, "step": "confirm", "data": draft}
+            session = {"chat_id": message.chat.id, "step": "form", "data": draft}
             _newbie_sessions[user_id] = session
         else:
             return
 
     if text.lower().startswith("/newbie"):
-        session["step"] = "game_nickname"
+        session["step"] = "form"
         session["data"] = {}
-        await message.answer("🎮 Игровой ник:")
-        return
-
-    step = session["step"]
-    data = session["data"]
-
-    if step == "game_nickname":
-        if len(text) < 2:
-            await message.answer("Напиши игровой ник.")
-            return
-        data["game_nickname"] = text[:100]
-        storage.save_newbie_draft(message.chat.id, user_id, data)
-        session["step"] = "level"
-        await message.answer("⭐ Уровень:")
-        return
-
-    if step == "level":
-        data["level"] = text[:50]
-        storage.save_newbie_draft(message.chat.id, user_id, data)
-        session["step"] = "class_name"
-        await message.answer("⚔️ Класс:")
-        return
-
-    if step == "class_name":
-        data["class_name"] = text[:100]
-        storage.save_newbie_draft(message.chat.id, user_id, data)
-        session["step"] = "teamspeak"
-        await message.answer("🎧 TeamSpeak: Да или Нет?")
-        return
-
-    if step == "teamspeak":
-        answer = text.lower()
-        if answer not in _NEWBIE_YES and answer not in _NEWBIE_NO:
-            await message.answer("Напиши «Да» или «Нет».")
-            return
-        data["teamspeak"] = "Да" if answer in _NEWBIE_YES else "Нет"
-        storage.save_newbie_draft(message.chat.id, user_id, data)
-        session["step"] = "telegram"
-        await message.answer("📱 Telegram: Да или Нет?")
-        return
-
-    if step == "telegram":
-        answer = text.lower()
-        if answer not in _NEWBIE_YES and answer not in _NEWBIE_NO:
-            await message.answer("Напиши «Да» или «Нет».")
-            return
-        data["telegram"] = "Да" if answer in _NEWBIE_YES else "Нет"
-        storage.save_newbie_draft(message.chat.id, user_id, data)
-        session["step"] = "confirm"
+        storage.save_newbie_draft(message.chat.id, user_id, {})
         await message.answer(
-            "📋 Проверь анкету:\n\n"
-            f"🎮 Игровой ник: {data['game_nickname']}\n"
-            f"⭐ Уровень: {data['level']}\n"
-            f"⚔️ Класс: {data['class_name']}\n"
-            f"🎧 TeamSpeak: {data['teamspeak']}\n"
-            f"📱 Telegram: {data['telegram']}\n\n"
-            "Всё верно?",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="✅ Принять", callback_data="newbie_confirm"),
-                InlineKeyboardButton(text="✏️ Заполнить заново", callback_data="newbie_restart"),
-            ]]),
+            "📝 <b>Анкета новичка</b>\n\n"
+            "🎮 Игровой ник:\n"
+            "⭐ Уровень:\n"
+            "⚔️ Класс:\n"
+            "🎧 TeamSpeak: Да / Нет\n"
+            "📱 Telegram: Да / Нет\n\n"
+            "Отправь <b>одним сообщением</b> 5 строк в таком порядке:\n"
+            "<code>ИгровойНик\n146\nСин\nДа\nДа</code>",
+            parse_mode="HTML",
         )
         return
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) != 5:
+        await message.answer(
+            "⚠️ Нужно отправить ровно 5 строк одним сообщением:\n"
+            "1. Игровой ник\n2. Уровень\n3. Класс\n4. TeamSpeak: Да/Нет\n5. Telegram: Да/Нет"
+        )
+        return
+
+    teamspeak = lines[3].lower()
+    telegram = lines[4].lower()
+    if teamspeak not in _NEWBIE_YES | _NEWBIE_NO or telegram not in _NEWBIE_YES | _NEWBIE_NO:
+        await message.answer("⚠️ В строках TeamSpeak и Telegram укажи только «Да» или «Нет».")
+        return
+
+    data = {
+        "game_nickname": lines[0][:100],
+        "level": lines[1][:50],
+        "class_name": lines[2][:100],
+        "teamspeak": "Да" if teamspeak in _NEWBIE_YES else "Нет",
+        "telegram": "Да" if telegram in _NEWBIE_YES else "Нет",
+    }
+    storage.save_newbie_draft(message.chat.id, user_id, data)
+    session["data"] = data
+    session["step"] = "confirm"
+
+    await message.answer(
+        "📋 <b>Проверь анкету:</b>\n\n"
+        f"🎮 Игровой ник: {data['game_nickname']}\n"
+        f"⭐ Уровень: {data['level']}\n"
+        f"⚔️ Класс: {data['class_name']}\n"
+        f"🎧 TeamSpeak: {data['teamspeak']}\n"
+        f"📱 Telegram: {data['telegram']}\n\n"
+        "Всё верно?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Принять", callback_data="newbie_confirm"),
+            InlineKeyboardButton(text="✏️ Заполнить заново", callback_data="newbie_restart"),
+        ]]),
+        parse_mode="HTML",
+    )
 
 
 @dp.callback_query(F.data == "newbie_confirm")
