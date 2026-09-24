@@ -519,30 +519,42 @@ async def newbie_confirm_callback(callback: CallbackQuery):
 
     added_by_username = _normalize_username(callback.from_user.username)
     added_by_display_name = callback.from_user.full_name or callback.from_user.first_name or ""
-    ok = storage.add_recruit(
-        chat_id,
-        data["game_nickname"],
-        data["level"],
-        data["class_name"],
-        data["teamspeak"],
-        data["telegram"],
-        user_id,
-        added_by_username or None,
-        added_by_display_name,
-    )
-    if not ok:
-        await callback.answer("Такой игрок уже есть", show_alert=True)
-        await callback.message.answer(
-            f"⚠️ Игрок **{data['game_nickname']}** уже есть в базе принятых.",
-            parse_mode="Markdown",
+    try:
+        ok = storage.add_recruit(
+            chat_id,
+            data["game_nickname"],
+            data["level"],
+            data["class_name"],
+            data["teamspeak"],
+            data["telegram"],
+            user_id,
+            added_by_username or None,
+            added_by_display_name,
         )
+        if not ok:
+            await callback.answer("Такой игрок уже есть", show_alert=True)
+            await _close_newbie_session(callback, None)
+            return
+
+        # Сразу закрываем сессию в памяти и удаляем черновик.
+        # После этого обычные сообщения пользователя уже не считаются частью /newbie.
         _newbie_sessions.pop(user_id, None)
         storage.delete_newbie_draft(chat_id, user_id)
-        return
 
-    # Сохраняем запись, затем полностью закрываем сессию и удаляем сообщения анкеты.
-    await _close_newbie_session(callback, None)
-    # callback уже получил ответ «Сохраняю…» выше.
+        # Убираем все сообщения текущей анкеты и все напоминания.
+        await _close_newbie_session(callback, None)
+    except Exception:
+        logging.exception("Failed to finalize newbie acceptance")
+        # Даже если Telegram не дал удалить сообщение, анкета не должна оставаться активной.
+        _newbie_sessions.pop(user_id, None)
+        storage.delete_newbie_draft(chat_id, user_id)
+        storage.delete_newbie_message_ids(chat_id, user_id)
+        storage.delete_newbie_messages(chat_id, user_id)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        raise
 
 
 @dp.message(
