@@ -2,6 +2,8 @@ import asyncio
 import logging
 import re
 import random
+import json
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 
@@ -47,10 +49,55 @@ _newbie_sessions: dict[int, dict] = {}
 _NEWBIE_YES = {"да", "д", "yes", "y", "конечно"}
 _NEWBIE_NO = {"нет", "н", "no", "n"}
 
+# Google Sheets integration for accepted recruits.
+GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbzdId2N2sJ3HyNb_K5JeAU4Im7ib8G6nOgR5k2ghmm2f-77-3x2V6xCPY6X7i1GRMtMIg/exec"
+GOOGLE_SHEETS_SECRET = "AKfycbzdId2N2sJ3HyNb_K5JeAU4Im7ib8G6nOgR5k2ghmm2f-77-3x2V6xCPY6X7i1GRMtMIg"
+
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
 def _addressed_to_alina(text: str) -> bool: return bool(_NAME_ADDRESS.search(text))
+
+
+async def _send_recruit_to_google_sheets(
+    data: dict,
+    added_by_username: str | None,
+    added_by_display_name: str,
+):
+    """Отправляет принятого новичка в Google Sheets через Apps Script."""
+    payload = {
+        "secret": GOOGLE_SHEETS_SECRET,
+        "date": datetime.now().astimezone().isoformat(),
+        "game_nickname": data.get("game_nickname", ""),
+        "level": data.get("level", ""),
+        "class_name": data.get("class_name", ""),
+        "teamspeak": data.get("teamspeak", ""),
+        "telegram": data.get("telegram", ""),
+        "added_by": (
+            f"@{added_by_username}"
+            if added_by_username
+            else added_by_display_name
+        ),
+    }
+
+    def _post():
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            GOOGLE_SHEETS_WEBHOOK,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.read().decode("utf-8", errors="replace")
+
+    try:
+        result = await asyncio.to_thread(_post)
+        logging.info("[GOOGLE SHEETS] Recruit synced: %s", result)
+        return True
+    except Exception:
+        logging.exception("[GOOGLE SHEETS] Failed to sync recruit")
+        return False
 
 
 def _is_knowledge_correction(text: str) -> bool:
@@ -555,6 +602,14 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         # После этого обычные сообщения пользователя уже не считаются частью /newbie.
         _newbie_sessions.pop(user_id, None)
         storage.delete_newbie_draft(chat_id, user_id)
+
+        # Отправляем принятого новичка в Google Таблицу.
+        # Ошибка синхронизации не отменяет принятие в самой Алине.
+        await _send_recruit_to_google_sheets(
+            data,
+            added_by_username,
+            added_by_display_name,
+        )
 
         # Убираем все сообщения текущей анкеты и все напоминания.
         await _close_newbie_session(callback, None)
