@@ -536,7 +536,8 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         return
 
     # Сохраняем запись, затем полностью закрываем сессию и удаляем сообщения анкеты.
-    await _close_newbie_session(callback, "Сохранено");
+    await _close_newbie_session(callback, None)
+    # callback уже получил ответ «Сохраняю…» выше.
 
 
 @dp.message(
