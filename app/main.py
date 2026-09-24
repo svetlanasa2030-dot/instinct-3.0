@@ -442,12 +442,13 @@ async def newbie_confirm_callback(callback: CallbackQuery):
 
     _newbie_sessions.pop(user_id, None)
     storage.delete_newbie_draft(chat_id, user_id)
-    recruiter = f"@{added_by_username}" if added_by_username else added_by_display_name
-    await callback.message.answer(
-        f"✅ Игрок **{data['game_nickname']}** принят и сохранён в базе Алины.\n"
-        f"👤 Принял: {recruiter}",
-        parse_mode="Markdown",
-    )
+
+    # Анкета уже сохранена в SQLite, поэтому само сообщение с формой
+    # можно убрать из чата после нажатия «Принять».
+    try:
+        await callback.message.delete()
+    except Exception as exc:
+        logging.warning("Could not delete accepted newbie questionnaire: %s", exc)
 
 
 @dp.message(
