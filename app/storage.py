@@ -231,6 +231,16 @@ class Storage:
                 (chat_id, username),
             ).fetchall()
 
+    def recruits_by_adder_user_id(self, chat_id: int, user_id: int):
+        with self._conn() as conn:
+            return conn.execute(
+                """SELECT game_nickname, level, class_name, teamspeak, telegram, created_at
+                   FROM recruits
+                   WHERE chat_id=? AND added_by_user_id=?
+                   ORDER BY id ASC""",
+                (chat_id, user_id),
+            ).fetchall()
+
     def recruit_by_nickname(self, chat_id: int, game_nickname: str):
         with self._conn() as conn:
             return conn.execute(
