@@ -300,7 +300,7 @@ def _normalize_username(username: str | None) -> str:
 def _parse_recruiter_query(text: str):
     normalized = text.strip()
     match = re.search(
-        r"(?iu)\bкого\s+(?:ты\s+)?(?:принял|приняла|приняли|принимал|принимала|принимали)\s+@?([A-Za-z0-9_]+)",
+        r"(?iu)\bкого\s+(?:ты\s+)?(?:принял|приняла|приняли|принимал|принимала|принимали|внёс|внес|внесла|внесли|записал|записала|записали)\s+@?([a-z0-9_]+)",
         normalized,
     )
     if match:
@@ -753,6 +753,11 @@ async def on_message(message: Message):
                 await message.answer(random.choice(return_messages))
         except (ValueError, TypeError, OverflowError):
             pass
+
+    recruiter = _parse_recruiter_query(original_text)
+    if recruiter and _is_allowed_chat(message) and _addressed_to_alina(original_text):
+        await command_recruiter_list(message)
+        return
 
     if not _addressed_to_alina(original_text) and not is_reply_to_alina: return
 
