@@ -331,6 +331,7 @@ async def command_newbie(message: Message):
         parse_mode="HTML",
     )
     _newbie_sessions[user_id]["questionnaire_message_id"] = prompt_message.message_id
+    storage.save_newbie_message_ids(message.chat.id, user_id, questionnaire_message_id=prompt_message.message_id)
 
 
 @dp.message(F.text, lambda message: bool(message.from_user and message.from_user.id in _newbie_sessions))
@@ -392,7 +393,7 @@ async def newbie_form_message(message: Message):
     session["data"] = data
     session["step"] = "confirm"
 
-    await message.answer(
+    confirmation_message = await message.answer(
         "📋 <b>Проверь анкету:</b>\n\n"
         f"🎮 Игровой ник: {data['game_nickname']}\n"
         f"⭐ Уровень: {data['level']}\n"
@@ -405,6 +406,9 @@ async def newbie_form_message(message: Message):
             InlineKeyboardButton(text="✏️ Заполнить заново", callback_data="newbie_restart"),
         ]]),
         parse_mode="HTML",
+    )
+    storage.save_newbie_message_ids(
+        message.chat.id, user_id, confirmation_message_id=confirmation_message.message_id
     )
 
 
@@ -446,25 +450,25 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         return
 
     # Сначала сохраняем запись, затем убираем оба служебных сообщения анкеты.
-    session_for_delete = _newbie_sessions.get(user_id)
+    message_ids = storage.get_newbie_message_ids(chat_id, user_id)
     questionnaire_message_id = (
-        session_for_delete.get("questionnaire_message_id")
-        if session_for_delete else None
+        message_ids[0] if message_ids else None
+    )
+    confirmation_message_id = (
+        message_ids[1] if message_ids else callback.message.message_id
     )
     _newbie_sessions.pop(user_id, None)
     storage.delete_newbie_draft(chat_id, user_id)
+    storage.delete_newbie_message_ids(chat_id, user_id)
 
-    try:
-        # Сообщение «Проверь анкету» с кнопками.
-        await callback.message.delete()
-    except Exception as exc:
-        logging.warning("Could not delete newbie confirmation message: %s", exc)
-
-    if questionnaire_message_id:
+    # Удаляем оба сообщения независимо от того, пережил ли бот перезапуск.
+    for message_id in {questionnaire_message_id, confirmation_message_id}:
+        if not message_id:
+            continue
         try:
-            await callback.bot.delete_message(chat_id, questionnaire_message_id)
+            await callback.bot.delete_message(chat_id, message_id)
         except Exception as exc:
-            logging.warning("Could not delete newbie questionnaire message: %s", exc)
+            logging.warning("Could not delete newbie message %s: %s", message_id, exc)
 
 
 @dp.message(
