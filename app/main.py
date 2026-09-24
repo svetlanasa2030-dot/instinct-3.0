@@ -82,6 +82,19 @@ def _strip_urls(text: str) -> str:
 def _is_allowed_chat(message: Message) -> bool: return message.chat.id == settings.group_chat_id
 
 
+@dp.callback_query(F.data == "newbie_restart")
+async def newbie_restart_callback(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = callback.message.chat.id
+    _newbie_sessions[user_id] = {"chat_id": chat_id, "step": "game_nickname", "data": {}}
+    storage.save_newbie_draft(chat_id, user_id, {})
+    await callback.answer("Заполняем заново")
+    await callback.message.answer("🎮 Игровой ник:")
+
+
 @dp.message(
     F.text,
     lambda message: _is_allowed_chat(message)
@@ -305,6 +318,7 @@ async def command_newbie(message: Message):
         "step": "game_nickname",
         "data": {},
     }
+    storage.save_newbie_draft(message.chat.id, user_id, {})
     await message.answer(
         "📝 Заполняем анкету новичка.\n\n"
         "🎮 Игровой ник:"
@@ -317,7 +331,12 @@ async def newbie_form_message(message: Message):
     text = (message.text or "").strip()
     session = _newbie_sessions.get(user_id)
     if not session or session["chat_id"] != message.chat.id:
-        return
+        draft = storage.get_newbie_draft(message.chat.id, user_id)
+        if draft:
+            session = {"chat_id": message.chat.id, "step": "confirm", "data": draft}
+            _newbie_sessions[user_id] = session
+        else:
+            return
 
     if text.lower().startswith("/newbie"):
         session["step"] = "game_nickname"
@@ -333,18 +352,21 @@ async def newbie_form_message(message: Message):
             await message.answer("Напиши игровой ник.")
             return
         data["game_nickname"] = text[:100]
+        storage.save_newbie_draft(message.chat.id, user_id, data)
         session["step"] = "level"
         await message.answer("⭐ Уровень:")
         return
 
     if step == "level":
         data["level"] = text[:50]
+        storage.save_newbie_draft(message.chat.id, user_id, data)
         session["step"] = "class_name"
         await message.answer("⚔️ Класс:")
         return
 
     if step == "class_name":
         data["class_name"] = text[:100]
+        storage.save_newbie_draft(message.chat.id, user_id, data)
         session["step"] = "teamspeak"
         await message.answer("🎧 TeamSpeak: Да или Нет?")
         return
@@ -355,6 +377,7 @@ async def newbie_form_message(message: Message):
             await message.answer("Напиши «Да» или «Нет».")
             return
         data["teamspeak"] = "Да" if answer in _NEWBIE_YES else "Нет"
+        storage.save_newbie_draft(message.chat.id, user_id, data)
         session["step"] = "telegram"
         await message.answer("📱 Telegram: Да или Нет?")
         return
@@ -365,6 +388,7 @@ async def newbie_form_message(message: Message):
             await message.answer("Напиши «Да» или «Нет».")
             return
         data["telegram"] = "Да" if answer in _NEWBIE_YES else "Нет"
+        storage.save_newbie_draft(message.chat.id, user_id, data)
         session["step"] = "confirm"
         await message.answer(
             "📋 Проверь анкету:\n\n"
@@ -382,22 +406,20 @@ async def newbie_form_message(message: Message):
         return
 
 
-@dp.callback_query(F.data.in_({"newbie_confirm", "newbie_restart"}))
-async def newbie_callback(callback: CallbackQuery):
+@dp.callback_query(F.data == "newbie_confirm")
+async def newbie_confirm_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
+    if callback.message is None:
+        await callback.answer("Не удалось найти анкету.", show_alert=True)
+        return
+    chat_id = callback.message.chat.id
     session = _newbie_sessions.get(user_id)
-    if callback.message is None or not session or session["chat_id"] != callback.message.chat.id:
-        await callback.answer()
+    data = session["data"] if session and session["chat_id"] == chat_id else storage.get_newbie_draft(chat_id, user_id)
+    if not data or not data.get("game_nickname"):
+        await callback.answer("Анкета устарела. Запусти /newbie ещё раз.", show_alert=True)
         return
+    await callback.answer("Сохраняю…")
 
-    if callback.data == "newbie_restart":
-        session["step"] = "game_nickname"
-        session["data"] = {}
-        await callback.answer("Заполняем заново")
-        await callback.message.answer("🎮 Игровой ник:")
-        return
-
-    data = session["data"]
     added_by_username = _normalize_username(callback.from_user.username)
     added_by_display_name = callback.from_user.full_name or callback.from_user.first_name or ""
     ok = storage.add_recruit(
@@ -418,10 +440,12 @@ async def newbie_callback(callback: CallbackQuery):
             parse_mode="Markdown",
         )
         _newbie_sessions.pop(user_id, None)
+        storage.delete_newbie_draft(chat_id, user_id)
         return
 
     _newbie_sessions.pop(user_id, None)
-    await callback.answer("Сохранено")
+    storage.delete_newbie_draft(chat_id, user_id)
+    await callback.message.answer
     recruiter = f"@{added_by_username}" if added_by_username else added_by_display_name
     await callback.message.answer(
         f"✅ Игрок **{data['game_nickname']}** принят и сохранён в базе Алины.\n"
