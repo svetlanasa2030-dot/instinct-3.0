@@ -108,6 +108,11 @@ async def _close_newbie_session(callback: CallbackQuery, notice: str | None = No
         await callback.answer(notice)
 
 
+@dp.callback_query(F.data == "newbie_cancel")
+async def newbie_cancel_callback(callback: CallbackQuery):
+    await _close_newbie_session(callback, "Анкета отменена")
+
+
 @dp.callback_query(F.data == "newbie_reject")
 async def newbie_reject_callback(callback: CallbackQuery):
     await _close_newbie_session(callback, "Анкета отклонена")
@@ -132,6 +137,9 @@ async def newbie_restart_callback(callback: CallbackQuery):
         "📱 Telegram: Да / Нет\n\n"
         "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
         "<code>ИгровойНик, 146, Син, Да, Да</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❌ Отменить", callback_data="newbie_cancel"),
+        ]]),
         parse_mode="HTML",
     )
     _newbie_sessions[user_id]["questionnaire_message_id"] = prompt_message.message_id
@@ -450,6 +458,8 @@ async def newbie_form_message(message: Message):
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="✅ Принять", callback_data="newbie_confirm"),
                     InlineKeyboardButton(text="❌ Отклонить", callback_data="newbie_reject"),
+            InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
+                    InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
                 ]]),
                 parse_mode="HTML",
             )
