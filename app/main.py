@@ -346,6 +346,13 @@ async def command_newbie(message: Message):
 async def newbie_form_message(message: Message):
     user_id = message.from_user.id
     text = (message.text or "").strip()
+
+    # Запрос истории всегда имеет приоритет над активной анкетой.
+    recruiter = _parse_recruiter_query(text)
+    if _is_allowed_chat(message) and _addressed_to_alina(text) and recruiter:
+        await command_recruiter_list(message)
+        return
+
     session = _newbie_sessions.get(user_id)
     if not session or session["chat_id"] != message.chat.id:
         draft = storage.get_newbie_draft(message.chat.id, user_id)
