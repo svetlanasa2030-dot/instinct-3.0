@@ -88,13 +88,15 @@ async def _close_newbie_session(callback: CallbackQuery, notice: str | None = No
         return
     chat_id = callback.message.chat.id
     message_ids = storage.get_newbie_message_ids(chat_id, user_id)
-    ids = {callback.message.message_id}
+    ids = set(storage.get_newbie_messages(chat_id, user_id))
+    ids.add(callback.message.message_id)
     if message_ids:
         ids.update(x for x in message_ids if x)
 
     _newbie_sessions.pop(user_id, None)
     storage.delete_newbie_draft(chat_id, user_id)
     storage.delete_newbie_message_ids(chat_id, user_id)
+    storage.delete_newbie_messages(chat_id, user_id)
 
     for message_id in ids:
         try:
@@ -387,6 +389,7 @@ async def command_newbie(message: Message):
     )
     _newbie_sessions[user_id]["questionnaire_message_id"] = prompt_message.message_id
     storage.save_newbie_message_ids(message.chat.id, user_id, questionnaire_message_id=prompt_message.message_id)
+    storage.add_newbie_message(message.chat.id, user_id, prompt_message.message_id)
 
 
 @dp.message(
@@ -439,7 +442,7 @@ async def newbie_form_message(message: Message):
         # не продолжаем анкету и не отдаём сообщение другим обработчикам.
         data = session.get("data") or storage.get_newbie_draft(message.chat.id, user_id)
         if data and data.get("game_nickname"):
-            await message.answer(
+            reminder_message = await message.answer(
                 "📋 <b>Анкета ожидает решения.</b>\n\n"
                 "Принять анкету или отклонить?",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
@@ -448,6 +451,7 @@ async def newbie_form_message(message: Message):
                 ]]),
                 parse_mode="HTML",
             )
+            storage.add_newbie_message(message.chat.id, user_id, reminder_message.message_id)
             return
 
     # Анкету заполняем одним сообщением через запятую:
@@ -496,6 +500,7 @@ async def newbie_form_message(message: Message):
     storage.save_newbie_message_ids(
         message.chat.id, user_id, confirmation_message_id=confirmation_message.message_id
     )
+    storage.add_newbie_message(message.chat.id, user_id, confirmation_message.message_id)
 
 
 @dp.callback_query(F.data == "newbie_confirm")
