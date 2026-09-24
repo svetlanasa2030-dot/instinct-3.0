@@ -82,6 +82,35 @@ def _strip_urls(text: str) -> str:
 def _is_allowed_chat(message: Message) -> bool: return message.chat.id == settings.group_chat_id
 
 
+async def _close_newbie_session(callback: CallbackQuery, notice: str | None = None):
+    user_id = callback.from_user.id
+    if callback.message is None:
+        return
+    chat_id = callback.message.chat.id
+    message_ids = storage.get_newbie_message_ids(chat_id, user_id)
+    ids = {callback.message.message_id}
+    if message_ids:
+        ids.update(x for x in message_ids if x)
+
+    _newbie_sessions.pop(user_id, None)
+    storage.delete_newbie_draft(chat_id, user_id)
+    storage.delete_newbie_message_ids(chat_id, user_id)
+
+    for message_id in ids:
+        try:
+            await callback.bot.delete_message(chat_id, message_id)
+        except Exception as exc:
+            logging.warning("Could not delete newbie message %s: %s", message_id, exc)
+
+    if notice:
+        await callback.answer(notice)
+
+
+@dp.callback_query(F.data == "newbie_reject")
+async def newbie_reject_callback(callback: CallbackQuery):
+    await _close_newbie_session(callback, "Анкета отклонена")
+
+
 @dp.callback_query(F.data == "newbie_restart")
 async def newbie_restart_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -89,10 +118,22 @@ async def newbie_restart_callback(callback: CallbackQuery):
         await callback.answer()
         return
     chat_id = callback.message.chat.id
-    _newbie_sessions[user_id] = {"chat_id": chat_id, "step": "game_nickname", "data": {}}
+    await _close_newbie_session(callback, "Заполняем заново")
+    _newbie_sessions[user_id] = {"chat_id": chat_id, "step": "form", "data": {}}
     storage.save_newbie_draft(chat_id, user_id, {})
-    await callback.answer("Заполняем заново")
-    await callback.message.answer("🎮 Игровой ник:")
+    prompt_message = await callback.message.answer(
+        "📝 <b>Анкета новичка</b>\n\n"
+        "🎮 Игровой ник:\n"
+        "⭐ Уровень:\n"
+        "⚔️ Класс:\n"
+        "🎧 TeamSpeak: Да / Нет\n"
+        "📱 Telegram: Да / Нет\n\n"
+        "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
+        "<code>ИгровойНик, 146, Син, Да, Да</code>",
+        parse_mode="HTML",
+    )
+    _newbie_sessions[user_id]["questionnaire_message_id"] = prompt_message.message_id
+    storage.save_newbie_message_ids(chat_id, user_id, questionnaire_message_id=prompt_message.message_id)
 
 
 @dp.message(
@@ -393,6 +434,22 @@ async def newbie_form_message(message: Message):
         )
         return
 
+    if session.get("step") == "confirm":
+        # Пока пользователь не нажал «Принять» или «Отклонить»,
+        # не продолжаем анкету и не отдаём сообщение другим обработчикам.
+        data = session.get("data") or storage.get_newbie_draft(message.chat.id, user_id)
+        if data and data.get("game_nickname"):
+            await message.answer(
+                "📋 <b>Анкета ожидает решения.</b>\n\n"
+                "Принять анкету или отклонить?",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="✅ Принять", callback_data="newbie_confirm"),
+                    InlineKeyboardButton(text="❌ Отклонить", callback_data="newbie_reject"),
+                ]]),
+                parse_mode="HTML",
+            )
+            return
+
     # Анкету заполняем одним сообщением через запятую:
     # Игровой ник, уровень, класс, TeamSpeak, Telegram
     fields = [part.strip() for part in text.split(",")]
@@ -432,7 +489,7 @@ async def newbie_form_message(message: Message):
         "Всё верно?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="✅ Принять", callback_data="newbie_confirm"),
-            InlineKeyboardButton(text="✏️ Заполнить заново", callback_data="newbie_restart"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data="newbie_reject"),
         ]]),
         parse_mode="HTML",
     )
@@ -478,26 +535,8 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         storage.delete_newbie_draft(chat_id, user_id)
         return
 
-    # Сначала сохраняем запись, затем убираем оба служебных сообщения анкеты.
-    message_ids = storage.get_newbie_message_ids(chat_id, user_id)
-    questionnaire_message_id = (
-        message_ids[0] if message_ids else None
-    )
-    confirmation_message_id = (
-        message_ids[1] if message_ids else callback.message.message_id
-    )
-    _newbie_sessions.pop(user_id, None)
-    storage.delete_newbie_draft(chat_id, user_id)
-    storage.delete_newbie_message_ids(chat_id, user_id)
-
-    # Удаляем оба сообщения независимо от того, пережил ли бот перезапуск.
-    for message_id in {questionnaire_message_id, confirmation_message_id}:
-        if not message_id:
-            continue
-        try:
-            await callback.bot.delete_message(chat_id, message_id)
-        except Exception as exc:
-            logging.warning("Could not delete newbie message %s: %s", message_id, exc)
+    # Сохраняем запись, затем полностью закрываем сессию и удаляем сообщения анкеты.
+    await _close_newbie_session(callback, "Сохранено");
 
 
 @dp.message(
