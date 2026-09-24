@@ -423,7 +423,7 @@ async def recruiter_history_query(message: Message):
     await command_recruiter_list(message)
 
 
-@dp.message(F.text, lambda message: _is_allowed_chat(message) and (message.text or "").strip().lower().startswith("/newbie"))
+@dp.message(Command('newbie'))
 async def command_newbie(message: Message):
     user_id = message.from_user.id if message.from_user else None
     if not user_id:
