@@ -238,6 +238,16 @@ class Storage:
             )
         return True
 
+    def all_recruits(self):
+        """Возвращает всех принятых новичков для локального раздела EXE."""
+        with self._conn() as conn:
+            return conn.execute(
+                """SELECT game_nickname, level, class_name, teamspeak, telegram,
+                          added_by_username, added_by_display_name, created_at
+                   FROM recruits
+                   ORDER BY id DESC"""
+            ).fetchall()
+
     def recruits_by_adder(self, chat_id: int, username: str):
         username = username.lower().lstrip("@").strip()
         with self._conn() as conn:
