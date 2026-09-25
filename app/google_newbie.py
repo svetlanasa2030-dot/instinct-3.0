@@ -10,12 +10,10 @@ logger = logging.getLogger(__name__)
 GOOGLE_NEWBIE_SECRET = os.getenv("GOOGLE_NEWBIE_SECRET", "").strip()
 GOOGLE_NEWBIE_WEBHOOK = os.getenv("GOOGLE_NEWBIE_WEBHOOK", "").strip()
 
-# If only the Apps Script deployment ID is configured as the secret,
-# automatically build the standard /exec Web App URL.
-if not GOOGLE_NEWBIE_WEBHOOK and GOOGLE_NEWBIE_SECRET:
-    GOOGLE_NEWBIE_WEBHOOK = (
-        f"https://script.google.com/macros/s/{GOOGLE_NEWBIE_SECRET}/exec"
-    )
+# Both values are required:
+# - GOOGLE_NEWBIE_SECRET: shared secret checked by Google Apps Script
+# - GOOGLE_NEWBIE_WEBHOOK: deployed Apps Script Web App URL ending in /exec
+# They are intentionally separate values.
 
 
 def send_newbie_to_google(
