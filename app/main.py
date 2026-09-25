@@ -1264,33 +1264,56 @@ async def command_market(message: Message):
 
 @dp.message(F.new_chat_members)
 async def on_new_chat_members(message: Message):
-    """Автоматически приветствует новых участников группы."""
+    """Следит за системными сообщениями о вступлении в General (/1) и приветствует новичков."""
     if not _is_allowed_chat(message):
         return
 
-    new_members = [member for member in (message.new_chat_members or []) if not (_bot_id and member.id == _bot_id)]
+    # В этом чате General — топик с thread_id=1.
+    if message.message_thread_id != 1:
+        return
+
+    new_members = [
+        member
+        for member in (message.new_chat_members or [])
+        if not (_bot_id and member.id == _bot_id)
+    ]
     if not new_members:
         return
 
     greetings = [
         "Добро пожаловать, {name}! 👋 Осваивайся, у нас тут весело 😏",
-        "О, новенький! {name}, добро пожаловать в клан 👀",
+        "О, к нам прибыл новый участник — {name}! 👀 Добро пожаловать в клан!",
         "Встречаем {name}! 👋 Заходи, располагайся.",
         "{name}, добро пожаловать! 😌 Теперь ты официально с нами.",
         "Так-так, к нам прибыло подкрепление — {name}! 🔥 Добро пожаловать!",
     ]
 
-    names = [member.full_name or member.first_name or "новенький" for member in new_members]
-    if len(names) == 1:
-        text = random.choice(greetings).format(name=names[0])
-    else:
-        text = "Добро пожаловать в клан! 👋\\n\\n" + "\\n".join(f"• {name}" for name in names)
-        text += "\\n\\nОсваивайтесь, теперь вы с нами 😏"
+    for member in new_members:
+        name = member.full_name or member.first_name or "новичок"
+        await message.bot.send_message(
+            settings.group_chat_id,
+            random.choice(greetings).format(name=name),
+            message_thread_id=1,
+        )
 
+
+@dp.message(F.left_chat_member)
+async def on_left_chat_member(message: Message):
+    """Следит за системными сообщениями о выходе/удалении участника в General (/1)."""
+    if not _is_allowed_chat(message):
+        return
+    if message.message_thread_id != 1:
+        return
+
+    member = message.left_chat_member
+    if not member or (_bot_id and member.id == _bot_id):
+        return
+
+    name = member.full_name or member.first_name or "участник"
     await message.bot.send_message(
         settings.group_chat_id,
-        text,
-        message_thread_id=2,
+        f"{name}, пока 👋 Будем рады видеть снова.",
+        message_thread_id=1,
     )
 
 
