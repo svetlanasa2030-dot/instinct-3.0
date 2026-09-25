@@ -28,7 +28,13 @@ except ImportError:
     run_news_monitor_in_thread = None
 
 # Логирование одновременно в консоль и в отдельный файл logs/bot.log.
-LOG_DIR = Path.cwd() / "logs"
+# Логи всегда создаются рядом с запущенным EXE/скриптом, а не зависят от текущей рабочей папки.
+try:
+    APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
+except Exception:
+    APP_DIR = Path.cwd()
+
+LOG_DIR = APP_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "bot.log"
 
