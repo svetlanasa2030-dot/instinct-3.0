@@ -2,6 +2,9 @@ import json
 import logging
 import os
 import urllib.request
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +12,17 @@ logger = logging.getLogger(__name__)
 # Prefer storing these values in %APPDATA%\\InstinctBot\\.env rather than in source code.
 GOOGLE_NEWBIE_SECRET = os.getenv("GOOGLE_NEWBIE_SECRET", "").strip()
 GOOGLE_NEWBIE_WEBHOOK = os.getenv("GOOGLE_NEWBIE_WEBHOOK", "").strip()
+
+
+def _refresh_google_config() -> tuple[str, str]:
+    """Reload Google settings from the same APPDATA .env used by config.py."""
+    global GOOGLE_NEWBIE_SECRET, GOOGLE_NEWBIE_WEBHOOK
+    app_data = Path(os.getenv("APPDATA", str(Path.home()))) / "InstinctBot"
+    env_path = app_data / ".env"
+    load_dotenv(env_path, override=True)
+    GOOGLE_NEWBIE_SECRET = os.getenv("GOOGLE_NEWBIE_SECRET", "").strip()
+    GOOGLE_NEWBIE_WEBHOOK = os.getenv("GOOGLE_NEWBIE_WEBHOOK", "").strip()
+    return GOOGLE_NEWBIE_SECRET, GOOGLE_NEWBIE_WEBHOOK
 
 # Both values are required:
 # - GOOGLE_NEWBIE_SECRET: shared secret checked by Google Apps Script
@@ -31,6 +45,7 @@ def send_newbie_to_google(
     SQLite remains the primary database. A Google failure is deliberately
     non-fatal: the local save has already completed and the bot continues.
     """
+    _refresh_google_config()
     if not GOOGLE_NEWBIE_WEBHOOK or not GOOGLE_NEWBIE_SECRET:
         logger.warning(
             "[NEWBIE][GOOGLE] Google storage is not configured. "
@@ -100,14 +115,15 @@ def send_newbie_to_google(
 
 def test_google_newbie() -> tuple[bool, str]:
     """Send a harmless TEST row to Google Sheets and return a user-safe diagnosis."""
-    if not GOOGLE_NEWBIE_SECRET:
+    secret, webhook = _refresh_google_config()
+    if not secret:
         return False, "Не задан GOOGLE_NEWBIE_SECRET в .env"
-    if not GOOGLE_NEWBIE_WEBHOOK:
+    if not webhook:
         return False, "Не задан GOOGLE_NEWBIE_WEBHOOK в .env"
 
     payload = json.dumps(
         {
-            "secret": GOOGLE_NEWBIE_SECRET,
+            "secret": secret,
             "test": True,
             "date": "TEST",
             "game_nickname": "TEST",
@@ -120,7 +136,7 @@ def test_google_newbie() -> tuple[bool, str]:
         ensure_ascii=False,
     ).encode("utf-8")
     request = urllib.request.Request(
-        GOOGLE_NEWBIE_WEBHOOK,
+        webhook,
         data=payload,
         headers={
             "Content-Type": "application/json; charset=utf-8",
