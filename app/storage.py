@@ -79,6 +79,24 @@ class Storage:
                 "added_by_user_id": "INTEGER",
                 "added_by_username": "TEXT",
                 "added_by_display_name": "TEXT",
+                "created_at": "TEXT",
+            }.items():
+                if column not in recruit_columns:
+                    if column == "created_at":
+                        conn.execute(
+                            "ALTER TABLE recruits ADD COLUMN created_at TEXT NOT NULL DEFAULT ''"
+                        )
+                    else:
+                        conn.execute(f"ALTER TABLE recruits ADD COLUMN {column} {definition}")
+            # Старые версии могли хранить класс в player_class.
+            recruit_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(recruits)").fetchall()
+            }
+            if "player_class" in recruit_columns and "class_name" in recruit_columns:
+                conn.execute(
+                    "UPDATE recruits SET class_name = player_class "
+                    "WHERE COALESCE(class_name, '') = '' AND player_class IS NOT NULL"
+                )
             }.items():
                 if column not in recruit_columns:
                     conn.execute(f"ALTER TABLE recruits ADD COLUMN {column} {definition}")
