@@ -13,7 +13,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from app.ai import AIEngine
 from app.config import load_settings
 from app.storage import Storage
-from app.reminders import ReminderService, is_authorized, parse_command
+from app.reminders import ReminderService, parse_command
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
@@ -280,12 +280,12 @@ def _parse_watch_command(text: str):
 
 
 
-@dp.message(F.text, lambda message: is_authorized(message.from_user.username if message.from_user else None) and parse_command((message.text or '').strip()) is not None)
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and parse_command((message.text or '').strip()) is not None)
 async def command_reminder(message: Message):
     if not _is_allowed_chat(message):
         return
     username = message.from_user.username if message.from_user else None
-    if not is_authorized(username):
+    if not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id if message.from_user else 0):
         return
 
     parsed = parse_command((message.text or "").strip())
@@ -306,13 +306,10 @@ async def command_reminder(message: Message):
 
 
 
-def _authorized_reminder_user(message: Message) -> bool:
-    return _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None)
-
 
 @dp.message(F.text.startswith('/reminders'))
 async def command_reminders(message: Message):
-    if not _authorized_reminder_user(message):
+    if not _is_allowed_chat(message) or not message.from_user or not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id):
         return
     rows = reminder_service.list_pending(message.chat.id)
     if not rows:
@@ -349,10 +346,9 @@ def _parse_forum_search(text: str):
     return query or None
 
 
-@dp.message(F.text, lambda message: _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None) and _parse_forum_search((message.text or '').strip()) is not None)
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and _parse_forum_search((message.text or '').strip()) is not None)
 async def command_forum_search(message: Message):
-    username = message.from_user.username if message.from_user else None
-    if not is_authorized(username):
+    if not message.from_user or not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id):
         return
     query = _parse_forum_search((message.text or '').strip())
     if not query:
@@ -692,9 +688,8 @@ async def callback_google_sheets_test(callback: CallbackQuery):
         await callback.answer()
         return
 
-    username = callback.from_user.username if callback.from_user else None
-    if not is_authorized(username):
-        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
+    if not callback.from_user or not await _is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id):
+        await callback.answer("Эта кнопка доступна только администраторам.", show_alert=True)
         return
 
     await callback.answer("Проверяю Google Sheets…")
@@ -966,9 +961,8 @@ async def callback_yt_test_like(callback: CallbackQuery):
         await callback.answer()
         return
 
-    username = callback.from_user.username if callback.from_user else None
-    if not is_authorized(username):
-        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
+    if not callback.from_user or not await _is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id):
+        await callback.answer("Эта кнопка доступна только администраторам.", show_alert=True)
         return
 
     await callback.answer("Запускаю проверку YouTube…")
