@@ -26,6 +26,12 @@ class Storage:
                 messages TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (chat_id, user_id)
             )""")
+            user_memory_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(user_memory)").fetchall()
+            }
+            if "gender" not in user_memory_columns:
+                conn.execute("ALTER TABLE user_memory ADD COLUMN gender TEXT")
+
             conn.execute("""CREATE TABLE IF NOT EXISTS clan_memory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER NOT NULL,
@@ -242,6 +248,24 @@ class Storage:
                        last_seen=excluded.last_seen,
                        messages=excluded.messages""",
                 (chat_id, user_id, username, display_name, datetime.now(timezone.utc).isoformat(), "\n".join(history)),
+            )
+
+    def get_user_gender(self, chat_id: int, user_id: int) -> str | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT gender FROM user_memory WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            ).fetchone()
+        return row[0] if row and row[0] in {"male", "female"} else None
+
+    def set_user_gender(self, chat_id: int, user_id: int, gender: str):
+        if gender not in {"male", "female"}:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE user_memory SET gender=?
+                   WHERE chat_id=? AND user_id=?""",
+                (gender, chat_id, user_id),
             )
 
     def user_last_seen(self, chat_id: int, user_id: int):
