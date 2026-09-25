@@ -248,6 +248,7 @@ class App(tk.Tk):
         self.write("[Система] Приложение запущено")
         self.write("[Система] Все настройки загружены")
         self.write("[Статус] Бот остановлен")
+        self.refresh_recruits()
 
     def refresh_recruits(self):
         """Показывает локально сохранённых новичков из SQLite."""
