@@ -2,9 +2,10 @@ import asyncio
 import os
 import threading
 import tkinter as tk
+from datetime import datetime
 from tkinter import ttk, messagebox
 
-from .config import save_local_settings, ENV_PATH
+from .config import save_local_settings, ENV_PATH, load_settings
 # Явный импорт для PyInstaller: main.py загружается динамически из GUI,
 # поэтому зависимости main.py иначе могут не попасть в собранный EXE.
 from .storage import Storage  # noqa: F401
@@ -77,9 +78,11 @@ class App(tk.Tk):
         prompts = ttk.Frame(nb, padding=6)
         initiative = ttk.Frame(nb, padding=6)
         journal = ttk.Frame(nb, padding=6)
+        recruits = ttk.Frame(nb, padding=6)
         for frame, title in [
             (overview, "Обзор"), (sources, "📚 Источники"), (settings, "Настройки"),
-            (prompts, "Промты"), (initiative, "Инициативный диалог"), (journal, "Журнал")
+            (prompts, "Промты"), (initiative, "Инициативный диалог"), (journal, "Журнал"),
+            (recruits, "👤 Новички")
         ]:
             nb.add(frame, text=title)
 
@@ -180,9 +183,108 @@ class App(tk.Tk):
         self.autoscroll = tk.BooleanVar(value=True)
         ttk.Checkbutton(log_bottom, text="Автопрокрутка", variable=self.autoscroll).pack(side="left")
         ttk.Button(log_bottom, text="🗑 Очистить лог", command=self.clear_log).pack(side="right")
+        # --- Новички ---
+        recruits.columnconfigure(0, weight=1)
+        recruits.rowconfigure(1, weight=1)
+
+        recruits_top = ttk.Frame(recruits)
+        recruits_top.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        ttk.Label(
+            recruits_top,
+            text="Принятые новички",
+            font=("Segoe UI", 13, "bold"),
+        ).pack(side="left")
+        self.recruits_count = tk.StringVar(value="Всего: 0")
+        ttk.Label(recruits_top, textvariable=self.recruits_count).pack(side="left", padx=12)
+        ttk.Button(
+            recruits_top,
+            text="↻ Обновить",
+            command=self.refresh_recruits,
+        ).pack(side="right")
+
+        recruits_table = ttk.Frame(recruits)
+        recruits_table.grid(row=1, column=0, sticky="nsew")
+        recruits_table.columnconfigure(0, weight=1)
+        recruits_table.rowconfigure(0, weight=1)
+
+        columns = (
+            "nickname", "level", "class", "teamspeak",
+            "telegram", "accepted_by", "date"
+        )
+        self.recruits_tree = ttk.Treeview(
+            recruits_table,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+        )
+        headings = {
+            "nickname": "Игровой ник",
+            "level": "Уровень",
+            "class": "Класс",
+            "teamspeak": "TeamSpeak",
+            "telegram": "Telegram",
+            "accepted_by": "Кто принял",
+            "date": "Дата",
+        }
+        widths = {
+            "nickname": 180, "level": 80, "class": 130,
+            "teamspeak": 100, "telegram": 100,
+            "accepted_by": 160, "date": 150,
+        }
+        for column in columns:
+            self.recruits_tree.heading(column, text=headings[column])
+            self.recruits_tree.column(column, width=widths[column], minwidth=70, stretch=True)
+
+        y_scroll = ttk.Scrollbar(recruits_table, orient="vertical", command=self.recruits_tree.yview)
+        x_scroll = ttk.Scrollbar(recruits_table, orient="horizontal", command=self.recruits_tree.xview)
+        self.recruits_tree.configure(
+            yscrollcommand=y_scroll.set,
+            xscrollcommand=x_scroll.set,
+        )
+        self.recruits_tree.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
         self.write("[Система] Приложение запущено")
         self.write("[Система] Все настройки загружены")
         self.write("[Статус] Бот остановлен")
+
+    def refresh_recruits(self):
+        """Показывает локально сохранённых новичков из SQLite."""
+        try:
+            settings = load_settings()
+            storage = Storage(settings.db_path)
+            rows = storage.all_recruits()
+
+            for item in self.recruits_tree.get_children():
+                self.recruits_tree.delete(item)
+
+            for nickname, level, class_name, teamspeak, telegram, username, display_name, created_at in rows:
+                accepted_by = f"@{username}" if username else (display_name or "—")
+                try:
+                    date_text = datetime.fromisoformat(created_at).astimezone().strftime("%d.%m.%Y %H:%M")
+                except Exception:
+                    date_text = (created_at or "")[:16].replace("T", " ")
+
+                self.recruits_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        nickname or "—",
+                        level or "—",
+                        class_name or "—",
+                        teamspeak or "—",
+                        telegram or "—",
+                        accepted_by,
+                        date_text,
+                    ),
+                )
+
+            self.recruits_count.set(f"Всего: {len(rows)}")
+            self.write(f"[Новички] Загружено записей: {len(rows)}")
+        except Exception as exc:
+            self.recruits_count.set("Ошибка загрузки")
+            self.write(f"[Новички] Ошибка: {exc}")
 
     def scan_sources(self):
         site_url = self.source_url.get().strip()
