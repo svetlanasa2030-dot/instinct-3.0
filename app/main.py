@@ -553,10 +553,20 @@ async def callback_google_sheets_test(callback: CallbackQuery):
     await callback.answer("Проверяю Google Sheets…")
     try:
         ok, details = await asyncio.to_thread(test_google_newbie)
+        # Диагностика показывает, какой URL реально видит запущенный EXE.
+        # Сам секрет никогда не показываем.
+        from pathlib import Path
+        from dotenv import dotenv_values
+        env_path = Path(__import__("os").getenv("APPDATA", str(Path.home()))) / "InstinctBot" / ".env"
+        env_values = dotenv_values(env_path)
+        webhook = (env_values.get("GOOGLE_NEWBIE_WEBHOOK") or "").strip()
+        secret = (env_values.get("GOOGLE_NEWBIE_SECRET") or "").strip()
+        url_info = webhook if webhook else "НЕ НАЙДЕН"
+        secret_info = "задан" if secret else "НЕ ЗАДАН"
         if ok:
-            text = f"☁️ <b>Google Sheets работает</b>\n\n{details}.\nПроверь строку <b>TEST</b> в таблице."
+            text = f"☁️ <b>Google Sheets работает</b>\n\n{details}.\n\n<b>Диагностика EXE:</b>\nURL: <code>{url_info}</code>\nSECRET: {secret_info}\n\nПроверь строку <b>TEST</b> в таблице."
         else:
-            text = f"☁️ <b>Тест Google Sheets не пройден</b>\n\n{details}"
+            text = f"☁️ <b>Тест Google Sheets не пройден</b>\n\n{details}\n\n<b>Диагностика EXE:</b>\nURL: <code>{url_info}</code>\nSECRET: {secret_info}"
         await callback.message.answer(text, parse_mode="HTML")
     except Exception as exc:
         logging.exception("[NEWBIE][GOOGLE] Test failed")
