@@ -67,8 +67,60 @@ class Storage:
                 added_by_display_name TEXT,
                 created_at TEXT NOT NULL
             )""")
-            # Миграция старой локальной БД: добавляем новые поля, если таблица recruits
-            # была создана предыдущей версией бота.
+            # Единая миграция старых таблиц recruits.
+            # В старых версиях встречались обязательные player_class / accepted_at,
+            # из-за чего новая INSERT-запись падала с NOT NULL constraint.
+            recruit_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(recruits)").fetchall()
+            }
+            legacy_columns = {"player_class", "accepted_at"} & recruit_columns
+            if legacy_columns:
+                conn.execute("ALTER TABLE recruits RENAME TO recruits_legacy")
+                conn.execute("""CREATE TABLE recruits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    game_nickname TEXT NOT NULL,
+                    level TEXT,
+                    class_name TEXT,
+                    teamspeak TEXT,
+                    telegram TEXT,
+                    added_by_user_id INTEGER,
+                    added_by_username TEXT,
+                    added_by_display_name TEXT,
+                    created_at TEXT NOT NULL
+                )""")
+                legacy_cols = {
+                    row[1] for row in conn.execute("PRAGMA table_info(recruits_legacy)").fetchall()
+                }
+
+                def _expr(column, fallback="NULL"):
+                    return column if column in legacy_cols else fallback
+
+                created_expr = (
+                    "COALESCE(NULLIF(created_at, ''), accepted_at, CURRENT_TIMESTAMP)"
+                    if "created_at" in legacy_cols and "accepted_at" in legacy_cols
+                    else _expr("created_at", "CURRENT_TIMESTAMP")
+                )
+                class_expr = (
+                    "COALESCE(NULLIF(class_name, ''), player_class)"
+                    if "class_name" in legacy_cols and "player_class" in legacy_cols
+                    else _expr("class_name", _expr("player_class", "''"))
+                )
+
+                conn.execute(
+                    f"""INSERT INTO recruits(
+                        id, chat_id, game_nickname, level, class_name, teamspeak, telegram,
+                        added_by_user_id, added_by_username, added_by_display_name, created_at
+                    )
+                    SELECT id, chat_id, game_nickname, {_expr("level", "''")},
+                           {class_expr}, {_expr("teamspeak", "''")}, {_expr("telegram", "''")},
+                           {_expr("added_by_user_id")}, {_expr("added_by_username")},
+                           {_expr("added_by_display_name")}, {created_expr}
+                    FROM recruits_legacy"""
+                )
+                conn.execute("DROP TABLE recruits_legacy")
+
+            # На случай промежуточной старой схемы добавляем отсутствующие поля.
             recruit_columns = {
                 row[1] for row in conn.execute("PRAGMA table_info(recruits)").fetchall()
             }
@@ -88,7 +140,7 @@ class Storage:
                         )
                     else:
                         conn.execute(f"ALTER TABLE recruits ADD COLUMN {column} {definition}")
-            # Старые версии могли хранить класс в player_class.
+
             recruit_columns = {
                 row[1] for row in conn.execute("PRAGMA table_info(recruits)").fetchall()
             }
