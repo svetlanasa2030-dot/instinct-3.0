@@ -4,8 +4,6 @@ import logging
 import re
 import random
 import json
-import urllib.request
-import urllib.error
 from pathlib import Path
 from datetime import datetime
 
@@ -68,10 +66,6 @@ _morning_greeting_task: asyncio.Task | None = None
 _newbie_sessions: dict[int, dict] = {}
 _NEWBIE_YES = {"да", "д", "yes", "y", "конечно"}
 _NEWBIE_NO = {"нет", "н", "no", "n"}
-
-# Google Sheets integration for accepted recruits.
-GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbzdId2N2sJ3HyNb_K5JeAU4Im7ib8G6nOgR5k2ghmm2f-77-3x2V6xCPY6X7i1GRMtMIg/exec"
-GOOGLE_SHEETS_SECRET = "AKfycbzdId2N2sJ3HyNb_K5JeAU4Im7ib8G6nOgR5k2ghmm2f-77-3x2V6xCPY6X7i1GRMtMIg"
 
 _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
@@ -688,14 +682,7 @@ async def newbie_confirm_callback(callback: CallbackQuery):
 
         # Отправляем принятого новичка в Google Таблицу.
         # Ошибка синхронизации не отменяет принятие в самой Алине.
-        logging.info("[NEWBIE] Локально принят. Запускаю синхронизацию с Google Sheets.")
-        sheets_ok = await _send_recruit_to_google_sheets(
-            data,
-            added_by_username,
-            added_by_display_name,
-        )
-        logging.info("[NEWBIE] Google Sheets sync result=%s", sheets_ok)
-
+        logging.info("[NEWBIE] Новичок сохранён локально в SQLite.")
         # Убираем все сообщения текущей анкеты и все напоминания.
         await _close_newbie_session(callback, None)
     except Exception:
