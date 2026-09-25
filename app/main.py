@@ -13,13 +13,14 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from app.ai import AIEngine
 from app.config import load_settings
 from app.storage import Storage
-from app.reminders import ReminderService, is_authorized, parse_command
+from app.reminders import ReminderService, parse_command
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever, _latest_video
 from app.youtube_browser import like_video, get_video_rating
+from app.roles import RoleManager, is_telegram_admin
 from app.google_newbie import send_newbie_to_google, test_google_newbie, get_google_config_status
 try:
     from app.news_monitor import run_news_monitor_in_thread
@@ -47,6 +48,7 @@ logging.basicConfig(
 )
 settings = load_settings()
 storage = Storage(settings.db_path)
+role_manager = RoleManager(settings.db_path)
 init_game_features(settings.db_path)
 ai = AIEngine(settings.openai_key, settings.openai_model, settings.system_prompt, storage)
 reminder_service = ReminderService(settings.db_path)
@@ -103,6 +105,34 @@ def _strip_urls(text: str) -> str:
 def _is_allowed_chat(message: Message) -> bool: return message.chat.id == settings.group_chat_id
 
 
+async def _is_admin_user(message: Message) -> bool:
+    if not message.from_user or not _is_allowed_chat(message):
+        return False
+    return await is_telegram_admin(message.bot, message.chat.id, message.from_user.id)
+
+
+async def _can_use_newbie(message: Message) -> bool:
+    if not message.from_user or not _is_allowed_chat(message):
+        return False
+    if await is_telegram_admin(message.bot, message.chat.id, message.from_user.id):
+        return True
+    return role_manager.get_role(message.chat.id, message.from_user.id) == "officer"
+
+
+async def _is_admin_callback(callback: CallbackQuery) -> bool:
+    if not callback.message or not callback.from_user or not _is_allowed_chat(callback.message):
+        return False
+    return await is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id)
+
+
+async def _can_use_newbie_callback(callback: CallbackQuery) -> bool:
+    if not callback.message or not callback.from_user or not _is_allowed_chat(callback.message):
+        return False
+    if await is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id):
+        return True
+    return role_manager.get_role(callback.message.chat.id, callback.from_user.id) == "officer"
+
+
 async def _close_newbie_session(callback: CallbackQuery, notice: str | None = None):
     user_id = callback.from_user.id
     if callback.message is None:
@@ -131,16 +161,25 @@ async def _close_newbie_session(callback: CallbackQuery, notice: str | None = No
 
 @dp.callback_query(F.data == "newbie_cancel")
 async def newbie_cancel_callback(callback: CallbackQuery):
+    if not await _can_use_newbie_callback(callback):
+        await callback.answer("Анкета доступна только администратору или офицеру.", show_alert=True)
+        return
     await _close_newbie_session(callback, "Анкета отменена")
 
 
 @dp.callback_query(F.data == "newbie_reject")
 async def newbie_reject_callback(callback: CallbackQuery):
+    if not await _can_use_newbie_callback(callback):
+        await callback.answer("Анкета доступна только администратору или офицеру.", show_alert=True)
+        return
     await _close_newbie_session(callback, "Анкета отклонена")
 
 
 @dp.callback_query(F.data == "newbie_restart")
 async def newbie_restart_callback(callback: CallbackQuery):
+    if not await _can_use_newbie_callback(callback):
+        await callback.answer("Анкета доступна только администратору или офицеру.", show_alert=True)
+        return
     user_id = callback.from_user.id
     if callback.message is None:
         await callback.answer()
@@ -175,6 +214,8 @@ async def newbie_restart_callback(callback: CallbackQuery):
 )
 async def direct_alina_ping(message: Message):
     """Быстрый ответ на простые обращения, не зависящий от ИИ."""
+    if not await _is_admin_user(message):
+        return
     await message.answer("Да, я здесь 🙂", reply_to_message_id=message.message_id)
 
 
@@ -216,13 +257,11 @@ def _parse_watch_command(text: str):
 
 
 
-@dp.message(F.text, lambda message: is_authorized(message.from_user.username if message.from_user else None) and parse_command((message.text or '').strip()) is not None)
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and parse_command((message.text or '').strip()) is not None)
 async def command_reminder(message: Message):
-    if not _is_allowed_chat(message):
+    if not await _is_admin_user(message):
         return
     username = message.from_user.username if message.from_user else None
-    if not is_authorized(username):
-        return
 
     parsed = parse_command((message.text or "").strip())
     if not parsed:
@@ -243,7 +282,7 @@ async def command_reminder(message: Message):
 
 
 def _authorized_reminder_user(message: Message) -> bool:
-    return _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None)
+    return False
 
 
 @dp.message(F.text.startswith('/reminders'))
@@ -285,10 +324,9 @@ def _parse_forum_search(text: str):
     return query or None
 
 
-@dp.message(F.text, lambda message: _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None) and _parse_forum_search((message.text or '').strip()) is not None)
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and _parse_forum_search((message.text or '').strip()) is not None)
 async def command_forum_search(message: Message):
-    username = message.from_user.username if message.from_user else None
-    if not is_authorized(username):
+    if not await _is_admin_user(message):
         return
     query = _parse_forum_search((message.text or '').strip())
     if not query:
@@ -318,7 +356,7 @@ def _game_request(text: str) -> bool:
 
 @dp.message(F.text, lambda message: _is_allowed_chat(message) and _game_request((message.text or '').strip()))
 async def command_game(message: Message):
-    if not _is_allowed_chat(message):
+    if not await _is_admin_user(message):
         return
     import random
     games = [
@@ -340,7 +378,7 @@ async def command_game(message: Message):
 
 @dp.message(F.text.startswith('/consultant'))
 async def command_consultant(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     global _bot_id
     if _bot_id is None:
         await message.answer('ИИ-консультант пока не готов.')
@@ -392,12 +430,90 @@ def _parse_recruiter_query(text: str):
     ),
 )
 async def recruiter_history_query(message: Message):
+    if not await _is_admin_user(message):
+        return
     # История рекрутирования всегда обрабатывается отдельно от /newbie.
     await command_recruiter_list(message)
 
 
+
+@dp.message(Command('roles'))
+async def command_roles(message: Message):
+    if not await _is_admin_user(message):
+        return
+
+    target = message.reply_to_message.from_user if message.reply_to_message else None
+    if not target or target.is_bot:
+        rows = role_manager.list_roles(message.chat.id)
+        officers = [
+            (display_name or (f"@{username}" if username else str(user_id)))
+            for user_id, username, display_name, role in rows
+            if role == "officer"
+        ]
+        await message.answer(
+            "👥 <b>Роли</b>\n\n"
+            "Ответь командой <code>/roles</code> на сообщение участника, чтобы назначить роль.\n\n"
+            "⚔️ Офицеры:\n"
+            + ("\n".join(f"• {name}" for name in officers) if officers else "• пока нет"),
+            parse_mode="HTML",
+        )
+        return
+
+    current = role_manager.get_role(message.chat.id, target.id)
+    current_label = "⚔️ Офицер" if current == "officer" else "🎮 Участник"
+    target_name = target.full_name or target.first_name or (f"@{target.username}" if target.username else str(target.id))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⚔️ Офицер", callback_data=f"roles:officer:{target.id}"),
+        InlineKeyboardButton(text="🎮 Участник", callback_data=f"roles:member:{target.id}"),
+    ]])
+    await message.answer(
+        f"👤 <b>{target_name}</b>\nТекущая роль: {current_label}\n\nВыбери роль:",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
+@dp.callback_query(F.data.startswith("roles:"))
+async def callback_role(callback: CallbackQuery):
+    if not await _is_admin_callback(callback):
+        await callback.answer("Назначать роли может только администратор.", show_alert=True)
+        return
+    if not callback.message:
+        await callback.answer()
+        return
+
+    match = re.match(r"^roles:(officer|member):(\d+)$", callback.data or "")
+    if not match:
+        await callback.answer("Некорректная роль.", show_alert=True)
+        return
+
+    role = match.group(1)
+    target_id = int(match.group(2))
+    try:
+        target = (await callback.bot.get_chat_member(callback.message.chat.id, target_id)).user
+    except Exception:
+        await callback.answer("Не удалось найти участника.", show_alert=True)
+        return
+
+    role_manager.set_role(
+        callback.message.chat.id,
+        target_id,
+        role,
+        target.username,
+        target.full_name or target.first_name,
+    )
+    label = "⚔️ Офицер" if role == "officer" else "🎮 Участник"
+    await callback.answer(f"Назначено: {label}")
+    await callback.message.edit_text(
+        f"👤 <b>{target.full_name or target.first_name or target_id}</b>\nРоль: {label}",
+        parse_mode="HTML",
+    )
+
+
 @dp.message(Command('newbie'))
 async def command_newbie(message: Message):
+    if not await _can_use_newbie(message):
+        return
     user_id = message.from_user.id if message.from_user else None
     if not user_id:
         return
@@ -437,6 +553,8 @@ async def command_newbie(message: Message):
     ),
 )
 async def newbie_form_message(message: Message):
+    if not await _can_use_newbie(message):
+        return
     user_id = message.from_user.id
     text = (message.text or "").strip()
 
@@ -548,9 +666,8 @@ async def callback_google_sheets_test(callback: CallbackQuery):
         await callback.answer()
         return
 
-    username = callback.from_user.username if callback.from_user else None
-    if not is_authorized(username):
-        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
+    if not await _is_admin_callback(callback):
+        await callback.answer("Эта кнопка доступна только администраторам.", show_alert=True)
         return
 
     await callback.answer("Проверяю Google Sheets…")
@@ -573,6 +690,9 @@ async def callback_google_sheets_test(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "newbie_confirm")
 async def newbie_confirm_callback(callback: CallbackQuery):
+    if not await _can_use_newbie_callback(callback):
+        await callback.answer("Анкета доступна только администратору или офицеру.", show_alert=True)
+        return
     user_id = callback.from_user.id
     logging.info("[NEWBIE] Нажата кнопка ПРИНЯТЬ: user_id=%s", user_id)
     if callback.message is None:
@@ -672,7 +792,7 @@ def _parse_analytics_command(text: str):
     lambda message: _parse_analytics_command((message.text or "").strip()) is not None,
 )
 async def command_analytics(message: Message):
-    if not _is_allowed_chat(message):
+    if not await _is_admin_user(message):
         return
     target = _parse_analytics_command(message.text or "")
     if target is None:
@@ -728,6 +848,8 @@ async def command_analytics(message: Message):
     and _parse_recruiter_query((message.text or "").strip()) is not None,
 )
 async def command_recruiter_list(message: Message):
+    if not await _is_admin_user(message):
+        return
     recruiter = _parse_recruiter_query(message.text or "")
     if not recruiter:
         return
@@ -774,7 +896,7 @@ async def command_recruiter_list(message: Message):
 
 @dp.message(F.text.startswith('/remember'))
 async def command_remember(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     memory = re.sub(r'^/remember(?:@\\w+)?\\s*', '', message.text or '', flags=re.I).strip()
     if not memory:
         await message.answer('Формат: /remember событие, мем или важный факт клана')
@@ -785,7 +907,7 @@ async def command_remember(message: Message):
 
 @dp.message(F.text.startswith('/memories'))
 async def command_memories(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     rows = storage.clan_memories(message.chat.id, 10)
     if not rows:
         await message.answer('🧠 Клановая память пока пустая.')
@@ -798,21 +920,21 @@ async def command_memories(message: Message):
 
 @dp.message(Command('start'))
 async def command_start(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     storage.set_chat_enabled(message.chat.id, True)
     await message.answer('🟢 Бот запущен. Теперь отвечаю на сообщения.')
 
 
 @dp.message(Command('stop'))
 async def command_stop(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     storage.set_chat_enabled(message.chat.id, False)
     await message.answer('🔴 Бот остановлен. Команду /start можно использовать для запуска.')
 
 
 @dp.message(Command('status'))
 async def command_status(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     await message.answer(f"Статус бота: {'🟢 запущен' if storage.is_chat_enabled(message.chat.id) else '🔴 остановлен'}.")
 
 
@@ -822,9 +944,8 @@ async def callback_yt_test_like(callback: CallbackQuery):
         await callback.answer()
         return
 
-    username = callback.from_user.username if callback.from_user else None
-    if not is_authorized(username):
-        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
+    if not await _is_admin_callback(callback):
+        await callback.answer("Эта кнопка доступна только администраторам.", show_alert=True)
         return
 
     await callback.answer("Запускаю проверку YouTube…")
@@ -864,7 +985,7 @@ async def callback_yt_test_like(callback: CallbackQuery):
 
 @dp.message(F.text.startswith('/watch'))
 async def command_watch(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     item, max_price = _parse_watch_command(message.text or '')
     if not item:
         await message.answer('Формат: /watch предмет [до 4 000 000]')
@@ -876,7 +997,7 @@ async def command_watch(message: Message):
 
 @dp.message(F.text.startswith('/watches'))
 async def command_watches(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     rows = list_watches(settings.db_path, message.chat.id)
     if not rows:
         await message.answer('Активных наблюдений нет.')
@@ -891,7 +1012,7 @@ async def command_watches(message: Message):
 
 @dp.message(F.text.startswith('/unwatch'))
 async def command_unwatch(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     match = re.search(r'^/unwatch(?:@\w+)?\s+(\d+)', message.text or '', re.I)
     if not match:
         await message.answer('Формат: /unwatch ID')
@@ -902,7 +1023,7 @@ async def command_unwatch(message: Message):
 
 @dp.message(F.text.startswith('/history'))
 async def command_history(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     item = re.sub(r'^/history(?:@\\w+)?\\s*', '', message.text or '', flags=re.I).strip()
     if not item:
         await message.answer('Формат: /history предмет')
@@ -913,7 +1034,7 @@ async def command_history(message: Message):
 
 @dp.message(F.text.startswith('/market'))
 async def command_market(message: Message):
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     from app.game_features import market_summary
     await message.answer(market_summary(settings.db_path, message.chat.id))
 
@@ -953,11 +1074,11 @@ async def on_new_chat_members(message: Message):
 @dp.message(F.text)
 async def on_message(message: Message):
     global _bot_id
-    if not _is_allowed_chat(message): return
+    if not await _is_admin_user(message): return
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie','/roles'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     display_name = message.from_user.full_name if message.from_user else None
