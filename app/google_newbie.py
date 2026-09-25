@@ -1,0 +1,100 @@
+import json
+import logging
+import os
+import urllib.request
+
+logger = logging.getLogger(__name__)
+
+# Google Apps Script Web App.
+# Prefer storing these values in %APPDATA%\\InstinctBot\\.env rather than in source code.
+GOOGLE_NEWBIE_SECRET = os.getenv("GOOGLE_NEWBIE_SECRET", "").strip()
+GOOGLE_NEWBIE_WEBHOOK = os.getenv("GOOGLE_NEWBIE_WEBHOOK", "").strip()
+
+# If only the Apps Script deployment ID is configured as the secret,
+# automatically build the standard /exec Web App URL.
+if not GOOGLE_NEWBIE_WEBHOOK and GOOGLE_NEWBIE_SECRET:
+    GOOGLE_NEWBIE_WEBHOOK = (
+        f"https://script.google.com/macros/s/{GOOGLE_NEWBIE_SECRET}/exec"
+    )
+
+
+def send_newbie_to_google(
+    *,
+    date: str,
+    game_nickname: str,
+    level: str,
+    class_name: str,
+    teamspeak: str,
+    telegram: str,
+    added_by: str,
+) -> bool:
+    """Send an accepted newbie to Google Sheets.
+
+    SQLite remains the primary database. A Google failure is deliberately
+    non-fatal: the local save has already completed and the bot continues.
+    """
+    if not GOOGLE_NEWBIE_WEBHOOK or not GOOGLE_NEWBIE_SECRET:
+        logger.warning(
+            "[NEWBIE][GOOGLE] Google storage is not configured. "
+            "Set GOOGLE_NEWBIE_SECRET and optionally GOOGLE_NEWBIE_WEBHOOK."
+        )
+        return False
+
+    payload = json.dumps(
+        {
+            "secret": GOOGLE_NEWBIE_SECRET,
+            "date": date,
+            "game_nickname": game_nickname,
+            "level": level,
+            "class_name": class_name,
+            "teamspeak": teamspeak,
+            "telegram": telegram,
+            "added_by": added_by,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    request = urllib.request.Request(
+        GOOGLE_NEWBIE_WEBHOOK,
+        data=payload,
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "InstinctBot/3.0",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            if not (200 <= response.status < 300):
+                logger.warning(
+                    "[NEWBIE][GOOGLE] HTTP %s: %s",
+                    response.status,
+                    body[:500],
+                )
+                return False
+
+        try:
+            result = json.loads(body)
+        except json.JSONDecodeError:
+            logger.warning("[NEWBIE][GOOGLE] Invalid JSON response: %s", body[:500])
+            return False
+
+        if not result.get("ok"):
+            logger.warning("[NEWBIE][GOOGLE] Apps Script error: %s", result)
+            return False
+
+        logger.info(
+            "[NEWBIE][GOOGLE] Новичок отправлен в Google Sheets: %s",
+            game_nickname,
+        )
+        return True
+
+    except Exception as exc:
+        logger.warning(
+            "[NEWBIE][GOOGLE] Не удалось отправить '%s': %s",
+            game_nickname,
+            exc,
+        )
+        return False
