@@ -6,7 +6,7 @@ import random
 from pathlib import Path
 from datetime import datetime
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
 
@@ -101,6 +101,70 @@ def _strip_urls(text: str) -> str:
 
 
 def _is_allowed_chat(message: Message) -> bool: return message.chat.id == settings.group_chat_id
+
+def _command_name(text: str) -> str:
+    match = re.match(r"^/(\w+)", (text or "").strip())
+    return match.group(1).lower() if match else ""
+
+
+async def _is_telegram_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        return member.status in {"creator", "administrator"}
+    except Exception as exc:
+        logging.warning("Could not check Telegram admin status for user %s: %s", user_id, exc)
+        return False
+
+
+class RoleAccessMiddleware(BaseMiddleware):
+    """Все функции Алины доступны администраторам.
+    Офицерам разрешён только /newbie и связанные с ним кнопки.
+    """
+
+    async def __call__(self, handler, event, data):
+        message = event if isinstance(event, Message) else getattr(event, "message", None)
+        user = getattr(event, "from_user", None)
+
+        if message is not None and message.new_chat_members:
+            return await handler(event, data)
+
+        if not message or not user or not _is_allowed_chat(message):
+            return None
+
+        is_admin = await _is_telegram_admin(event.bot, message.chat.id, user.id)
+        role = storage.get_user_role(message.chat.id, user.id)
+
+        if isinstance(event, CallbackQuery):
+            callback_data = event.data or ""
+            if callback_data.startswith("newbie_"):
+                allowed = is_admin or role == "officer"
+            elif callback_data.startswith("roles_"):
+                allowed = is_admin
+            else:
+                allowed = is_admin
+
+            if not allowed:
+                await event.answer("Эта функция доступна только администраторам.", show_alert=True)
+                return None
+            return await handler(event, data)
+
+        command = _command_name(getattr(event, "text", "") or "")
+        if command == "newbie":
+            allowed = is_admin or role == "officer"
+        elif command == "roles":
+            allowed = is_admin
+        else:
+            allowed = is_admin
+
+        if not allowed:
+            return None
+
+        return await handler(event, data)
+
+
+dp.message.middleware(RoleAccessMiddleware())
+dp.callback_query.middleware(RoleAccessMiddleware())
+
 
 
 async def _close_newbie_session(callback: CallbackQuery, notice: str | None = None):
@@ -394,6 +458,86 @@ def _parse_recruiter_query(text: str):
 async def recruiter_history_query(message: Message):
     # История рекрутирования всегда обрабатывается отдельно от /newbie.
     await command_recruiter_list(message)
+
+
+
+@dp.message(Command('roles'))
+async def command_roles(message: Message):
+    if not _is_allowed_chat(message) or not message.from_user:
+        return
+
+    if not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id):
+        await message.answer("⛔ Команда /roles доступна только администраторам.")
+        return
+
+    target_message = message.reply_to_message
+    target = target_message.from_user if target_message else None
+    if not target or target.is_bot:
+        await message.answer(
+            "👥 <b>Назначение роли</b>\n\n"
+            "Чтобы назначить роль, ответь командой <code>/roles</code> на сообщение нужного участника.",
+            parse_mode="HTML",
+        )
+        return
+
+    current_role = storage.get_user_role(message.chat.id, target.id)
+    current_label = "⚔️ Офицер" if current_role == "officer" else "🎮 Участник"
+    target_name = target.full_name or target.first_name or (f"@{target.username}" if target.username else str(target.id))
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⚔️ Офицер", callback_data=f"roles_set_officer_{target.id}"),
+        InlineKeyboardButton(text="🎮 Участник", callback_data=f"roles_set_member_{target.id}"),
+    ]])
+    await message.answer(
+        f"👤 <b>{target_name}</b>\n"
+        f"Текущая роль: {current_label}\n\n"
+        "Выбери новую роль:",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
+@dp.callback_query(F.data.startswith("roles_set_"))
+async def callback_set_role(callback: CallbackQuery):
+    if callback.message is None or not callback.from_user:
+        await callback.answer()
+        return
+
+    if not await _is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id):
+        await callback.answer("Только администратор может назначать роли.", show_alert=True)
+        return
+
+    match = re.match(r"^roles_set_(officer|member)_(\d+)$", callback.data or "")
+    if not match:
+        await callback.answer("Некорректная роль.", show_alert=True)
+        return
+
+    role = match.group(1)
+    target_id = int(match.group(2))
+
+    try:
+        target_member = await callback.bot.get_chat_member(callback.message.chat.id, target_id)
+        target = target_member.user
+    except Exception:
+        await callback.answer("Не удалось найти пользователя.", show_alert=True)
+        return
+
+    storage.set_user_role(
+        callback.message.chat.id,
+        target_id,
+        role,
+        target.username,
+        target.full_name or target.first_name,
+    )
+
+    label = "⚔️ Офицер" if role == "officer" else "🎮 Участник"
+    await callback.answer(f"Назначено: {label}")
+    await callback.message.edit_text(
+        f"👤 <b>{target.full_name or target.first_name or target_id}</b>\n"
+        f"Новая роль: {label}\n\n"
+        "Изменить роль можно снова через /roles ответом на его сообщение.",
+        parse_mode="HTML",
+    )
 
 
 @dp.message(Command('newbie'))
@@ -957,7 +1101,7 @@ async def on_message(message: Message):
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie','/roles'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     display_name = message.from_user.full_name if message.from_user else None
