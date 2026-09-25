@@ -281,13 +281,9 @@ async def command_reminder(message: Message):
 
 
 
-def _authorized_reminder_user(message: Message) -> bool:
-    return False
-
-
 @dp.message(F.text.startswith('/reminders'))
 async def command_reminders(message: Message):
-    if not _authorized_reminder_user(message):
+    if not await _is_admin_user(message):
         return
     rows = reminder_service.list_pending(message.chat.id)
     if not rows:
@@ -303,7 +299,7 @@ async def command_reminders(message: Message):
 
 @dp.message(F.text.startswith('/cancel'))
 async def command_cancel(message: Message):
-    if not _authorized_reminder_user(message):
+    if not await _is_admin_user(message):
         return
     match = re.search(r'^/cancel(?:@\w+)?\s+(\d+)', message.text or '', re.I)
     if not match:
