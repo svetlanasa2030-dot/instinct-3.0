@@ -6,14 +6,14 @@ import random
 from pathlib import Path
 from datetime import datetime
 
-from aiogram import BaseMiddleware, Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
 
 from app.ai import AIEngine
 from app.config import load_settings
 from app.storage import Storage
-from app.reminders import ReminderService, parse_command
+from app.reminders import ReminderService, is_authorized, parse_command
 from app.knowledge_ui import router as knowledge_router
 from app.source_sync import collect_sources
 from app.game_features import init_game_features, add_watch, list_watches, remove_watch, check_watches
@@ -101,70 +101,6 @@ def _strip_urls(text: str) -> str:
 
 
 def _is_allowed_chat(message: Message) -> bool: return message.chat.id == settings.group_chat_id
-
-def _command_name(text: str) -> str:
-    match = re.match(r"^/(\w+)", (text or "").strip())
-    return match.group(1).lower() if match else ""
-
-
-async def _is_telegram_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
-    try:
-        member = await bot.get_chat_member(chat_id, user_id)
-        return member.status in {"creator", "administrator"}
-    except Exception as exc:
-        logging.warning("Could not check Telegram admin status for user %s: %s", user_id, exc)
-        return False
-
-
-class RoleAccessMiddleware(BaseMiddleware):
-    """Все функции Алины доступны администраторам.
-    Офицерам разрешён только /newbie и связанные с ним кнопки.
-    """
-
-    async def __call__(self, handler, event, data):
-        message = event if isinstance(event, Message) else getattr(event, "message", None)
-        user = getattr(event, "from_user", None)
-
-        if message is not None and message.new_chat_members:
-            return await handler(event, data)
-
-        if not message or not user or not _is_allowed_chat(message):
-            return None
-
-        is_admin = await _is_telegram_admin(event.bot, message.chat.id, user.id)
-        role = storage.get_user_role(message.chat.id, user.id)
-
-        if isinstance(event, CallbackQuery):
-            callback_data = event.data or ""
-            if callback_data.startswith("newbie_"):
-                allowed = is_admin or role == "officer"
-            elif callback_data.startswith("roles_"):
-                allowed = is_admin
-            else:
-                allowed = is_admin
-
-            if not allowed:
-                await event.answer("Эта функция доступна только администраторам.", show_alert=True)
-                return None
-            return await handler(event, data)
-
-        command = _command_name(getattr(event, "text", "") or "")
-        if command == "newbie":
-            allowed = is_admin or role == "officer"
-        elif command == "roles":
-            allowed = is_admin
-        else:
-            allowed = is_admin
-
-        if not allowed:
-            return None
-
-        return await handler(event, data)
-
-
-dp.message.middleware(RoleAccessMiddleware())
-dp.callback_query.middleware(RoleAccessMiddleware())
-
 
 
 async def _close_newbie_session(callback: CallbackQuery, notice: str | None = None):
@@ -280,12 +216,12 @@ def _parse_watch_command(text: str):
 
 
 
-@dp.message(F.text, lambda message: _is_allowed_chat(message) and parse_command((message.text or '').strip()) is not None)
+@dp.message(F.text, lambda message: is_authorized(message.from_user.username if message.from_user else None) and parse_command((message.text or '').strip()) is not None)
 async def command_reminder(message: Message):
     if not _is_allowed_chat(message):
         return
     username = message.from_user.username if message.from_user else None
-    if not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id if message.from_user else 0):
+    if not is_authorized(username):
         return
 
     parsed = parse_command((message.text or "").strip())
@@ -306,10 +242,13 @@ async def command_reminder(message: Message):
 
 
 
+def _authorized_reminder_user(message: Message) -> bool:
+    return _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None)
+
 
 @dp.message(F.text.startswith('/reminders'))
 async def command_reminders(message: Message):
-    if not _is_allowed_chat(message) or not message.from_user or not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id):
+    if not _authorized_reminder_user(message):
         return
     rows = reminder_service.list_pending(message.chat.id)
     if not rows:
@@ -346,9 +285,10 @@ def _parse_forum_search(text: str):
     return query or None
 
 
-@dp.message(F.text, lambda message: _is_allowed_chat(message) and _parse_forum_search((message.text or '').strip()) is not None)
+@dp.message(F.text, lambda message: _is_allowed_chat(message) and is_authorized(message.from_user.username if message.from_user else None) and _parse_forum_search((message.text or '').strip()) is not None)
 async def command_forum_search(message: Message):
-    if not message.from_user or not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id):
+    username = message.from_user.username if message.from_user else None
+    if not is_authorized(username):
         return
     query = _parse_forum_search((message.text or '').strip())
     if not query:
@@ -456,86 +396,6 @@ async def recruiter_history_query(message: Message):
     await command_recruiter_list(message)
 
 
-
-@dp.message(Command('roles'))
-async def command_roles(message: Message):
-    if not _is_allowed_chat(message) or not message.from_user:
-        return
-
-    if not await _is_telegram_admin(message.bot, message.chat.id, message.from_user.id):
-        await message.answer("⛔ Команда /roles доступна только администраторам.")
-        return
-
-    target_message = message.reply_to_message
-    target = target_message.from_user if target_message else None
-    if not target or target.is_bot:
-        await message.answer(
-            "👥 <b>Назначение роли</b>\n\n"
-            "Чтобы назначить роль, ответь командой <code>/roles</code> на сообщение нужного участника.",
-            parse_mode="HTML",
-        )
-        return
-
-    current_role = storage.get_user_role(message.chat.id, target.id)
-    current_label = "⚔️ Офицер" if current_role == "officer" else "🎮 Участник"
-    target_name = target.full_name or target.first_name or (f"@{target.username}" if target.username else str(target.id))
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="⚔️ Офицер", callback_data=f"roles_set_officer_{target.id}"),
-        InlineKeyboardButton(text="🎮 Участник", callback_data=f"roles_set_member_{target.id}"),
-    ]])
-    await message.answer(
-        f"👤 <b>{target_name}</b>\n"
-        f"Текущая роль: {current_label}\n\n"
-        "Выбери новую роль:",
-        reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-
-
-@dp.callback_query(F.data.startswith("roles_set_"))
-async def callback_set_role(callback: CallbackQuery):
-    if callback.message is None or not callback.from_user:
-        await callback.answer()
-        return
-
-    if not await _is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id):
-        await callback.answer("Только администратор может назначать роли.", show_alert=True)
-        return
-
-    match = re.match(r"^roles_set_(officer|member)_(\d+)$", callback.data or "")
-    if not match:
-        await callback.answer("Некорректная роль.", show_alert=True)
-        return
-
-    role = match.group(1)
-    target_id = int(match.group(2))
-
-    try:
-        target_member = await callback.bot.get_chat_member(callback.message.chat.id, target_id)
-        target = target_member.user
-    except Exception:
-        await callback.answer("Не удалось найти пользователя.", show_alert=True)
-        return
-
-    storage.set_user_role(
-        callback.message.chat.id,
-        target_id,
-        role,
-        target.username,
-        target.full_name or target.first_name,
-    )
-
-    label = "⚔️ Офицер" if role == "officer" else "🎮 Участник"
-    await callback.answer(f"Назначено: {label}")
-    await callback.message.edit_text(
-        f"👤 <b>{target.full_name or target.first_name or target_id}</b>\n"
-        f"Новая роль: {label}\n\n"
-        "Изменить роль можно снова через /roles ответом на его сообщение.",
-        parse_mode="HTML",
-    )
-
-
 @dp.message(Command('newbie'))
 async def command_newbie(message: Message):
     user_id = message.from_user.id if message.from_user else None
@@ -547,15 +407,6 @@ async def command_newbie(message: Message):
         "data": {},
     }
     storage.save_newbie_draft(message.chat.id, user_id, {})
-    is_admin = await _is_telegram_admin(message.bot, message.chat.id, user_id)
-    newbie_buttons = [
-        InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
-    ]
-    if is_admin:
-        newbie_buttons.append(
-            InlineKeyboardButton(text="☁️ Тест Google Sheets", callback_data="google_sheets_test")
-        )
-
     prompt_message = await message.answer(
         "📝 <b>Анкета новичка</b>\n\n"
         "🎮 Игровой ник:\n"
@@ -565,7 +416,10 @@ async def command_newbie(message: Message):
         "📱 Telegram: Да / Нет\n\n"
         "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
         "<code>ИгровойНик, 146, Син, Да, Да</code>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[newbie_buttons]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
+            InlineKeyboardButton(text="☁️ Тест Google Sheets", callback_data="google_sheets_test"),
+        ]]),
         parse_mode="HTML",
     )
     _newbie_sessions[user_id]["questionnaire_message_id"] = prompt_message.message_id
@@ -694,8 +548,9 @@ async def callback_google_sheets_test(callback: CallbackQuery):
         await callback.answer()
         return
 
-    if not callback.from_user or not await _is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id):
-        await callback.answer("Эта кнопка доступна только администраторам.", show_alert=True)
+    username = callback.from_user.username if callback.from_user else None
+    if not is_authorized(username):
+        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
         return
 
     await callback.answer("Проверяю Google Sheets…")
@@ -967,8 +822,9 @@ async def callback_yt_test_like(callback: CallbackQuery):
         await callback.answer()
         return
 
-    if not callback.from_user or not await _is_telegram_admin(callback.bot, callback.message.chat.id, callback.from_user.id):
-        await callback.answer("Эта кнопка доступна только администраторам.", show_alert=True)
+    username = callback.from_user.username if callback.from_user else None
+    if not is_authorized(username):
+        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
         return
 
     await callback.answer("Запускаю проверку YouTube…")
@@ -1101,7 +957,7 @@ async def on_message(message: Message):
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie','/roles'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     display_name = message.from_user.full_name if message.from_user else None
