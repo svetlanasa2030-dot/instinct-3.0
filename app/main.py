@@ -3,7 +3,6 @@ import sys
 import logging
 import re
 import random
-import json
 from pathlib import Path
 from datetime import datetime
 
@@ -71,107 +70,6 @@ _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 
 
 def _addressed_to_alina(text: str) -> bool: return bool(_NAME_ADDRESS.search(text))
-
-
-async def _send_recruit_to_google_sheets(
-    data: dict,
-    added_by_username: str | None,
-    added_by_display_name: str,
-):
-    """Отправляет принятого новичка в Google Sheets через Apps Script."""
-    logging.info(
-        "[GOOGLE SHEETS] Начало отправки: nickname=%s, level=%s, class=%s, TS=%s, TG=%s, added_by=%s",
-        data.get("game_nickname", ""),
-        data.get("level", ""),
-        data.get("class_name", ""),
-        data.get("teamspeak", ""),
-        data.get("telegram", ""),
-        added_by_username or added_by_display_name,
-    )
-    payload = {
-        "secret": GOOGLE_SHEETS_SECRET,
-        "date": datetime.now().astimezone().isoformat(),
-        "game_nickname": data.get("game_nickname", ""),
-        "level": data.get("level", ""),
-        "class_name": data.get("class_name", ""),
-        "teamspeak": data.get("teamspeak", ""),
-        "telegram": data.get("telegram", ""),
-        "added_by": (
-            f"@{added_by_username}"
-            if added_by_username
-            else added_by_display_name
-        ),
-    }
-
-    class _PreservePostRedirect(urllib.request.HTTPRedirectHandler):
-        """Google Apps Script часто отвечает редиректом; сохраняем POST при переходе."""
-
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            if code in (301, 302, 303, 307, 308) and req.data is not None:
-                return urllib.request.Request(
-                    newurl,
-                    data=req.data,
-                    headers=dict(req.header_items()),
-                    origin_req_host=req.origin_req_host,
-                    unverifiable=True,
-                    method="POST",
-                )
-            return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-    def _post():
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        logging.info("[GOOGLE SHEETS] POST -> %s", GOOGLE_SHEETS_WEBHOOK)
-        request = urllib.request.Request(
-            GOOGLE_SHEETS_WEBHOOK,
-            data=body,
-            headers={
-                "Content-Type": "application/json; charset=utf-8",
-                "Accept": "application/json",
-            },
-            method="POST",
-        )
-        opener = urllib.request.build_opener(_PreservePostRedirect())
-        try:
-            with opener.open(request, timeout=20) as response:
-                result = response.read().decode("utf-8", errors="replace")
-                logging.info(
-                    "[GOOGLE SHEETS] HTTP %s, final_url=%s, body=%s",
-                    response.status,
-                    response.geturl(),
-                    result[:1000],
-                )
-                return response.status, result
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="replace")
-            logging.error(
-                "[GOOGLE SHEETS] HTTP ERROR %s, url=%s, body=%s",
-                exc.code,
-                exc.geturl(),
-                error_body[:2000],
-            )
-            raise
-
-    try:
-        status, result = await asyncio.to_thread(_post)
-        try:
-            response_data = json.loads(result)
-        except json.JSONDecodeError:
-            response_data = {}
-
-        if status != 200 or response_data.get("ok") is False:
-            logging.error(
-                "[GOOGLE SHEETS] Apps Script rejected recruit: status=%s response=%s",
-                status,
-                result[:2000],
-            )
-            return False
-
-        logging.info("[GOOGLE SHEETS] Recruit synced successfully: %s", result)
-        logging.info("[GOOGLE SHEETS] Файл логов: %s", LOG_FILE.resolve())
-        return True
-    except Exception:
-        logging.exception("[GOOGLE SHEETS] Failed to sync recruit")
-        return False
 
 
 def _is_knowledge_correction(text: str) -> bool:
