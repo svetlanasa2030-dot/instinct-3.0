@@ -547,6 +547,15 @@ async def command_newbie(message: Message):
         "data": {},
     }
     storage.save_newbie_draft(message.chat.id, user_id, {})
+    is_admin = await _is_telegram_admin(message.bot, message.chat.id, user_id)
+    newbie_buttons = [
+        InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
+    ]
+    if is_admin:
+        newbie_buttons.append(
+            InlineKeyboardButton(text="☁️ Тест Google Sheets", callback_data="google_sheets_test")
+        )
+
     prompt_message = await message.answer(
         "📝 <b>Анкета новичка</b>\n\n"
         "🎮 Игровой ник:\n"
@@ -556,10 +565,7 @@ async def command_newbie(message: Message):
         "📱 Telegram: Да / Нет\n\n"
         "Отправь <b>одним сообщением через запятую</b> в таком порядке:\n"
         "<code>ИгровойНик, 146, Син, Да, Да</code>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
-            InlineKeyboardButton(text="☁️ Тест Google Sheets", callback_data="google_sheets_test"),
-        ]]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[newbie_buttons]),
         parse_mode="HTML",
     )
     _newbie_sessions[user_id]["questionnaire_message_id"] = prompt_message.message_id
