@@ -498,6 +498,9 @@ async def newbie_form_message(message: Message):
             "⚠️ Отправь анкету одним сообщением через запятую:\n\n"
             "<code>Малком, 100, Син, Да, Да</code>\n\n"
             "Порядок: игровой ник, уровень, класс, TeamSpeak, Telegram.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
+            ]]),
             parse_mode="HTML",
         )
         return
