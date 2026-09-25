@@ -24,10 +24,11 @@ def _refresh_google_config() -> tuple[str, str]:
     GOOGLE_NEWBIE_WEBHOOK = os.getenv("GOOGLE_NEWBIE_WEBHOOK", "").strip()
     return GOOGLE_NEWBIE_SECRET, GOOGLE_NEWBIE_WEBHOOK
 
-# Both values are required:
-# - GOOGLE_NEWBIE_SECRET: shared secret checked by Google Apps Script
-# - GOOGLE_NEWBIE_WEBHOOK: deployed Apps Script Web App URL ending in /exec
-# They are intentionally separate values.
+
+def get_google_config_status() -> tuple[str, bool]:
+    """Return the effective runtime Google URL and whether the secret is set."""
+    secret, webhook = _refresh_google_config()
+    return webhook, bool(secret)
 
 
 def send_newbie_to_google(
@@ -49,7 +50,7 @@ def send_newbie_to_google(
     if not GOOGLE_NEWBIE_WEBHOOK or not GOOGLE_NEWBIE_SECRET:
         logger.warning(
             "[NEWBIE][GOOGLE] Google storage is not configured. "
-            "Set GOOGLE_NEWBIE_SECRET and optionally GOOGLE_NEWBIE_WEBHOOK."
+            "Set GOOGLE_NEWBIE_SECRET and GOOGLE_NEWBIE_WEBHOOK."
         )
         return False
 
@@ -114,7 +115,7 @@ def send_newbie_to_google(
 
 
 def test_google_newbie() -> tuple[bool, str]:
-    """Send a harmless TEST row to Google Sheets and return a user-safe diagnosis."""
+    """Send a harmless TEST row and report exactly what Apps Script confirms."""
     secret, webhook = _refresh_google_config()
     if not secret:
         return False, "Не задан GOOGLE_NEWBIE_SECRET в .env"
@@ -156,6 +157,15 @@ def test_google_newbie() -> tuple[bool, str]:
             return False, f"Google вернул не JSON: {body[:300]}"
         if not result.get("ok"):
             return False, f"Apps Script отклонил запрос: {str(result)[:300]}"
-        return True, "Тестовая запись TEST успешно отправлена в Google Sheets"
+
+        sheet_name = str(result.get("sheetName") or "не указан")
+        row = result.get("row")
+        spreadsheet_url = str(result.get("spreadsheetUrl") or "")
+        location = f"Лист: <b>{sheet_name}</b>"
+        if row is not None:
+            location += f", строка: <b>{row}</b>"
+        if spreadsheet_url:
+            location += f'\nТаблица: <a href="{spreadsheet_url}">открыть</a>'
+        return True, f"Тестовая запись TEST успешно отправлена.\n{location}"
     except Exception as exc:
         return False, f"Ошибка подключения: {exc}"
