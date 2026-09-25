@@ -3,6 +3,7 @@ import sys
 import logging
 import re
 import random
+from html import escape
 from pathlib import Path
 from datetime import datetime
 
@@ -680,14 +681,34 @@ async def callback_google_sheets_test(callback: CallbackQuery):
         webhook, secret_set = await asyncio.to_thread(get_google_config_status)
         url_info = webhook if webhook else "НЕ НАЙДЕН"
         secret_info = "задан" if secret_set else "НЕ ЗАДАН"
+        safe_details = escape(str(details))
+        safe_url_info = escape(str(url_info))
+
         if ok:
-            text = f"☁️ <b>Google Sheets работает</b>\n\n{details}.\n\n<b>Диагностика EXE:</b>\nURL: <code>{url_info}</code>\nSECRET: {secret_info}\n\nПроверь строку <b>TEST</b> в таблице."
+            text = (
+                "☁️ <b>Google Sheets работает</b>\n\n"
+                f"{safe_details}.\n\n"
+                "<b>Диагностика EXE:</b>\n"
+                f"URL: <code>{safe_url_info}</code>\n"
+                f"SECRET: {secret_info}\n\n"
+                "Проверь строку <b>TEST</b> в таблице."
+            )
         else:
-            text = f"☁️ <b>Тест Google Sheets не пройден</b>\n\n{details}\n\n<b>Диагностика EXE:</b>\nURL: <code>{url_info}</code>\nSECRET: {secret_info}"
+            text = (
+                "☁️ <b>Тест Google Sheets не пройден</b>\n\n"
+                f"{safe_details}\n\n"
+                "<b>Диагностика EXE:</b>\n"
+                f"URL: <code>{safe_url_info}</code>\n"
+                f"SECRET: {secret_info}"
+            )
         await callback.message.answer(text, parse_mode="HTML")
     except Exception as exc:
         logging.exception("[NEWBIE][GOOGLE] Test failed")
-        await callback.message.answer(f"☁️ <b>Тест не пройден</b>\n\nОшибка: {exc}", parse_mode="HTML")
+        safe_error = escape(str(exc))
+        await callback.message.answer(
+            f"☁️ <b>Тест не пройден</b>\n\nОшибка: <code>{safe_error}</code>",
+            parse_mode="HTML",
+        )
 
 
 @dp.callback_query(F.data == "newbie_confirm")
