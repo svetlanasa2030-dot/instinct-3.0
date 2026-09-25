@@ -583,7 +583,7 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         # Убираем все сообщения текущей анкеты и все напоминания.
         await _close_newbie_session(callback, None)
         await callback.message.answer(
-            f"✅ Новичок {data['game_nickname']} записан в локальную базу."
+            f"✅ Новичок {data['game_nickname']} записан в базу."
         )
     except Exception as exc:
         logging.exception("[NEWBIE] Failed to finalize newbie acceptance")
