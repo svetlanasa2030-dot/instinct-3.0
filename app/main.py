@@ -80,6 +80,26 @@ _NAME_ADDRESS = re.compile(r'(?i)(?<!\w)алин(?:а|е|у|ой|ы)?(?!\w)')
 def _addressed_to_alina(text: str) -> bool: return bool(_NAME_ADDRESS.search(text))
 
 
+def _detect_explicit_gender(text: str) -> str | None:
+    """Определяет род только по явным словам/формам самого пользователя."""
+    normalized = text.lower().strip()
+    female = (
+        r"\bя\s+(?:девушка|женщина|девочка)\b",
+        r"\bя\s+(?:пришла|сделала|сказала|была|видела|играла|зашла|вернулась|пропала)\b",
+        r"\bя\s+(?:родилась|училась)\b",
+    )
+    male = (
+        r"\bя\s+(?:парень|мужчина|мальчик)\b",
+        r"\bя\s+(?:пришел|пришёл|сделал|сказал|был|видел|играл|зашел|зашёл|вернулся|пропал)\b",
+        r"\bя\s+(?:родился|учился)\b",
+    )
+    if any(re.search(pattern, normalized) for pattern in female):
+        return "female"
+    if any(re.search(pattern, normalized) for pattern in male):
+        return "male"
+    return None
+
+
 def _is_knowledge_correction(text: str) -> bool:
     normalized = text.lower().strip()
     markers = (
@@ -1390,8 +1410,18 @@ async def on_message(message: Message):
             logging.debug('Could not add Telegram reaction: %s', exc)
 
     storage.add(message.chat.id, message.from_user.id if message.from_user else None, message.from_user.username if message.from_user else None, 'user', text)
+
+    detected_gender = _detect_explicit_gender(text)
+    if user_id and detected_gender:
+        storage.set_user_gender(message.chat.id, user_id, detected_gender)
+        logging.info("[MEMORY] Saved gender=%s for user_id=%s", detected_gender, user_id)
+
     try:
-        answer = _strip_urls(await ai.decide_and_answer(message.chat.id, text))
+        answer = _strip_urls(await ai.decide_and_answer(
+            message.chat.id,
+            text,
+            user_id=user_id,
+        ))
         if not answer: return
         await message.answer(answer, reply_to_message_id=message.message_id)
         storage.add(message.chat.id, None, None, 'assistant', answer)
