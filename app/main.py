@@ -1293,7 +1293,7 @@ async def on_new_chat_members(message: Message):
         await message.bot.send_message(
             settings.group_chat_id,
             random.choice(greetings).format(name=name),
-            message_thread_id=1,
+            message_thread_id=2,
         )
 
 
@@ -1313,7 +1313,7 @@ async def on_left_chat_member(message: Message):
     await message.bot.send_message(
         settings.group_chat_id,
         f"{name}, пока 👋 Будем рады видеть снова.",
-        message_thread_id=1,
+        message_thread_id=2,
     )
 
 
