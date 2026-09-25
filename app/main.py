@@ -9,7 +9,11 @@ from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji
+from aiogram.types import (
+    BotCommand, BotCommandScopeChat, BotCommandScopeChatAdministrators,
+    BotCommandScopeChatMember, BotCommandScopeDefault,
+    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReactionTypeEmoji,
+)
 
 from app.ai import AIEngine
 from app.config import load_settings
@@ -434,6 +438,56 @@ async def recruiter_history_query(message: Message):
 
 
 
+_ADMIN_COMMANDS = [
+    BotCommand(command="start", description="Запустить бота"),
+    BotCommand(command="stop", description="Остановить бота"),
+    BotCommand(command="status", description="Показать статус"),
+    BotCommand(command="newbie", description="Запустить анкету новичка"),
+    BotCommand(command="officer", description="Назначить офицером"),
+    BotCommand(command="unofficer", description="Снять статус офицера"),
+    BotCommand(command="officers", description="Показать список офицеров"),
+    BotCommand(command="roles", description="Управление ролями"),
+    BotCommand(command="analytics", description="Аналитика набора"),
+    BotCommand(command="watch", description="Добавить наблюдение"),
+    BotCommand(command="watches", description="Список наблюдений"),
+    BotCommand(command="unwatch", description="Удалить наблюдение"),
+    BotCommand(command="history", description="История предмета"),
+    BotCommand(command="market", description="Проверить рынок"),
+    BotCommand(command="reminders", description="Мои напоминания"),
+    BotCommand(command="cancel", description="Отменить напоминание"),
+    BotCommand(command="consultant", description="Открыть консультанта"),
+]
+
+_OFFICER_COMMANDS = [
+    BotCommand(command="newbie", description="Запустить анкету новичка"),
+]
+
+
+async def _set_commands_for_user(bot: Bot, chat_id: int, user_id: int, role: str):
+    commands = _OFFICER_COMMANDS if role == "officer" else []
+    await bot.set_my_commands(
+        commands,
+        scope=BotCommandScopeChatMember(chat_id=chat_id, user_id=user_id),
+    )
+
+
+async def _sync_role_command_menus(bot: Bot):
+    chat_id = settings.group_chat_id
+    await bot.set_my_commands([], scope=BotCommandScopeChat(chat_id=chat_id))
+    await bot.set_my_commands(
+        _ADMIN_COMMANDS,
+        scope=BotCommandScopeChatAdministrators(chat_id=chat_id),
+    )
+    for user_id, username, display_name, role in role_manager.list_roles(chat_id):
+        await _set_commands_for_user(bot, chat_id, user_id, role)
+
+
+async def _refresh_user_command_menu(bot: Bot, chat_id: int, user_id: int):
+    await _set_commands_for_user(
+        bot, chat_id, user_id, role_manager.get_role(chat_id, user_id)
+    )
+
+
 async def _resolve_role_target(message: Message):
     """Возвращает (user_id, username, display_name) по reply или @username."""
     if message.reply_to_message and message.reply_to_message.from_user:
@@ -481,6 +535,14 @@ async def command_officer(message: Message):
         await message.answer("Ты уже администратор Telegram. Назначать себя офицером не нужно.")
         return
 
+    try:
+        target_member = await message.bot.get_chat_member(message.chat.id, target_id)
+        if target_member.status in {"creator", "administrator"}:
+            await message.answer("👑 Telegram-администратору отдельная роль офицера не нужна.")
+            return
+    except Exception:
+        pass
+
     role_manager.set_role(
         message.chat.id,
         target_id,
@@ -488,6 +550,7 @@ async def command_officer(message: Message):
         username,
         display_name,
     )
+    await _refresh_user_command_menu(message.bot, message.chat.id, target_id)
     name = f"@{username}" if username else (display_name or str(target_id))
     await message.answer(f"🛡️ {name} назначен офицером.\nЕдинственная специальная команда: <code>/newbie</code>.", parse_mode="HTML")
 
@@ -522,6 +585,7 @@ async def command_unofficer(message: Message):
         username,
         display_name,
     )
+    await _refresh_user_command_menu(message.bot, message.chat.id, target_id)
     name = f"@{username}" if username else (display_name or str(target_id))
     await message.answer(f"👤 {name} больше не офицер.")
 
@@ -1376,6 +1440,11 @@ async def main():
     me = await bot.get_me()
     _bot_id = me.id
     await bot.delete_webhook(drop_pending_updates=False)
+    try:
+        await bot.set_my_commands([], scope=BotCommandScopeDefault())
+        await _sync_role_command_menus(bot)
+    except Exception:
+        logging.exception("Failed to configure role-based command menus")
     _knowledge_sync_task = asyncio.create_task(_sync_forum_forever())
     _watch_task = asyncio.create_task(_watch_forever(bot))
     _reminder_task = asyncio.create_task(_reminders_forever(bot))
