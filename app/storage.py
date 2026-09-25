@@ -67,6 +67,22 @@ class Storage:
                 added_by_display_name TEXT,
                 created_at TEXT NOT NULL
             )""")
+            # Миграция старой локальной БД: добавляем новые поля, если таблица recruits
+            # была создана предыдущей версией бота.
+            recruit_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(recruits)").fetchall()
+            }
+            for column, definition in {
+                "class_name": "TEXT",
+                "teamspeak": "TEXT",
+                "telegram": "TEXT",
+                "added_by_user_id": "INTEGER",
+                "added_by_username": "TEXT",
+                "added_by_display_name": "TEXT",
+            }.items():
+                if column not in recruit_columns:
+                    conn.execute(f"ALTER TABLE recruits ADD COLUMN {column} {definition}")
+
             conn.execute("""CREATE TABLE IF NOT EXISTS newbie_drafts (
                 chat_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
