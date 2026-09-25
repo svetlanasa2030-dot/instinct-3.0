@@ -16,7 +16,14 @@ function doPost(e) {
     if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
     if (sheet.getLastRow() === 0) { sheet.appendRow(HEADERS); sheet.setFrozenRows(1); }
     sheet.appendRow([data.date||'',data.game_nickname||'',data.level||'',data.class_name||'',data.teamspeak||'',data.telegram||'',data.added_by||'']);
-    return json_({ok:true,test:data.test===true});
+    SpreadsheetApp.flush();
+    return json_({
+      ok: true,
+      test: data.test === true,
+      sheetName: sheet.getName(),
+      row: sheet.getLastRow(),
+      spreadsheetUrl: ss.getUrl()
+    });
   } catch (err) {
     return json_({ok:false,error:String(err)});
   }
