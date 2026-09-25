@@ -149,16 +149,7 @@ class Storage:
                     "UPDATE recruits SET class_name = player_class "
                     "WHERE COALESCE(class_name, '') = '' AND player_class IS NOT NULL"
                 )
-            conn.execute("""CREATE TABLE IF NOT EXISTS user_roles (
-                chat_id INTEGER NOT NULL,
-                user_id INTEGER NOT NULL,
-                username TEXT,
-                display_name TEXT,
-                role TEXT NOT NULL DEFAULT 'member',
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (chat_id, user_id)
-            )""")
-                        conn.execute("""CREATE TABLE IF NOT EXISTS newbie_drafts (
+            conn.execute("""CREATE TABLE IF NOT EXISTS newbie_drafts (
                 chat_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 game_nickname TEXT NOT NULL DEFAULT '',
@@ -229,44 +220,6 @@ class Storage:
                 (chat_id, 1 if enabled else 0, datetime.now(timezone.utc).isoformat()),
             )
 
-
-    def get_user_role(self, chat_id: int, user_id: int) -> str:
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT role FROM user_roles WHERE chat_id=? AND user_id=?",
-                (chat_id, user_id),
-            ).fetchone()
-        return row[0] if row else "member"
-
-    def set_user_role(self, chat_id: int, user_id: int, role: str,
-                      username: str | None = None, display_name: str | None = None):
-        role = role.strip().lower()
-        if role not in {"officer", "member"}:
-            raise ValueError("Недопустимая роль")
-        with self._conn() as conn:
-            conn.execute(
-                """INSERT INTO user_roles(chat_id,user_id,username,display_name,role,updated_at)
-                   VALUES(?,?,?,?,?,?)
-                   ON CONFLICT(chat_id,user_id) DO UPDATE SET
-                       username=excluded.username,
-                       display_name=excluded.display_name,
-                       role=excluded.role,
-                       updated_at=excluded.updated_at""",
-                (
-                    chat_id, user_id, username, display_name, role,
-                    datetime.now(timezone.utc).isoformat(),
-                ),
-            )
-
-    def list_user_roles(self, chat_id: int):
-        with self._conn() as conn:
-            return conn.execute(
-                """SELECT user_id, username, display_name, role, updated_at
-                   FROM user_roles
-                   WHERE chat_id=?
-                   ORDER BY display_name COLLATE NOCASE, username COLLATE NOCASE""",
-                (chat_id,),
-            ).fetchall()
 
     def remember_user(self, chat_id: int, user_id: int | None, username: str | None, display_name: str | None, message: str | None = None):
         if user_id is None:
