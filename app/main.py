@@ -464,11 +464,15 @@ _OFFICER_COMMANDS = [
 
 
 async def _set_commands_for_user(bot: Bot, chat_id: int, user_id: int, role: str):
-    commands = _OFFICER_COMMANDS if role == "officer" else []
-    await bot.set_my_commands(
-        commands,
-        scope=BotCommandScopeChatMember(chat_id=chat_id, user_id=user_id),
-    )
+    scope = BotCommandScopeChatMember(chat_id=chat_id, user_id=user_id)
+
+    # Персональный scope нужен только офицеру.
+    # Для участника/администратора его нельзя оставлять пустым:
+    # пустой ChatMember scope имеет приоритет над ChatAdministrators.
+    if role == "officer":
+        await bot.set_my_commands(_OFFICER_COMMANDS, scope=scope)
+    else:
+        await bot.delete_my_commands(scope=scope)
 
 
 async def _sync_role_command_menus(bot: Bot):
@@ -478,11 +482,33 @@ async def _sync_role_command_menus(bot: Bot):
         _ADMIN_COMMANDS,
         scope=BotCommandScopeChatAdministrators(chat_id=chat_id),
     )
+
+    # Важно: очищаем персональные scopes у обычных участников и администраторов,
+    # чтобы они получали команды из общего Chat/ChatAdministrators scope.
     for user_id, username, display_name, role in role_manager.list_roles(chat_id):
+        try:
+            member = await bot.get_chat_member(chat_id, user_id)
+            if member.status in {"creator", "administrator"}:
+                await bot.delete_my_commands(
+                    scope=BotCommandScopeChatMember(chat_id=chat_id, user_id=user_id)
+                )
+                continue
+        except Exception:
+            pass
         await _set_commands_for_user(bot, chat_id, user_id, role)
 
 
 async def _refresh_user_command_menu(bot: Bot, chat_id: int, user_id: int):
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        if member.status in {"creator", "administrator"}:
+            await bot.delete_my_commands(
+                scope=BotCommandScopeChatMember(chat_id=chat_id, user_id=user_id)
+            )
+            return
+    except Exception:
+        pass
+
     await _set_commands_for_user(
         bot, chat_id, user_id, role_manager.get_role(chat_id, user_id)
     )
