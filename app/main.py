@@ -20,7 +20,7 @@ from app.game_features import init_game_features, add_watch, list_watches, remov
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever, _latest_video
 from app.youtube_browser import like_video, get_video_rating
-from app.google_newbie import send_newbie_to_google
+from app.google_newbie import send_newbie_to_google, test_google_newbie
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -418,6 +418,7 @@ async def command_newbie(message: Message):
         "<code>ИгровойНик, 146, Син, Да, Да</code>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🚫 Отменить", callback_data="newbie_cancel"),
+            InlineKeyboardButton(text="☁️ Тест Google Sheets", callback_data="google_sheets_test"),
         ]]),
         parse_mode="HTML",
     )
@@ -536,6 +537,30 @@ async def newbie_form_message(message: Message):
         message.chat.id, user_id, confirmation_message_id=confirmation_message.message_id
     )
     storage.add_newbie_message(message.chat.id, user_id, confirmation_message.message_id)
+
+
+@dp.callback_query(F.data == "google_sheets_test")
+async def callback_google_sheets_test(callback: CallbackQuery):
+    if callback.message is None or not _is_allowed_chat(callback.message):
+        await callback.answer()
+        return
+
+    username = callback.from_user.username if callback.from_user else None
+    if not is_authorized(username):
+        await callback.answer("Эта кнопка доступна только авторизованным пользователям.", show_alert=True)
+        return
+
+    await callback.answer("Проверяю Google Sheets…")
+    try:
+        ok, details = await asyncio.to_thread(test_google_newbie)
+        if ok:
+            text = f"☁️ <b>Google Sheets работает</b>\n\n{details}.\nПроверь строку <b>TEST</b> в таблице."
+        else:
+            text = f"☁️ <b>Тест Google Sheets не пройден</b>\n\n{details}"
+        await callback.message.answer(text, parse_mode="HTML")
+    except Exception as exc:
+        logging.exception("[NEWBIE][GOOGLE] Test failed")
+        await callback.message.answer(f"☁️ <b>Тест не пройден</b>\n\nОшибка: {exc}", parse_mode="HTML")
 
 
 @dp.callback_query(F.data == "newbie_confirm")
