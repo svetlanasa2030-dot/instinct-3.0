@@ -434,6 +434,116 @@ async def recruiter_history_query(message: Message):
 
 
 
+async def _resolve_role_target(message: Message):
+    """Возвращает (user_id, username, display_name) по reply или @username."""
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target = message.reply_to_message.from_user
+        if target.is_bot:
+            return None
+        return target.id, target.username, target.full_name or target.first_name
+
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        return None
+
+    username = parts[1].strip()
+    if not username.startswith("@"):
+        return None
+
+    found = role_manager.find_user_by_username(message.chat.id, username)
+    return found
+
+
+@dp.message(Command('officer'))
+async def command_officer(message: Message):
+    if not await _is_admin_user(message):
+        return
+
+    target = await _resolve_role_target(message)
+    if not target:
+        await message.answer(
+            "Использование: <code>/officer @username</code>\n"
+            "или ответь командой <code>/officer</code> на сообщение участника.",
+            parse_mode="HTML",
+        )
+        return
+
+    target_id, username, display_name = target
+    try:
+        member = await message.bot.get_chat_member(message.chat.id, target_id)
+        target_user = member.user
+        username = target_user.username
+        display_name = target_user.full_name or target_user.first_name
+    except Exception:
+        pass
+
+    if target_id == message.from_user.id:
+        await message.answer("Ты уже администратор Telegram. Назначать себя офицером не нужно.")
+        return
+
+    role_manager.set_role(
+        message.chat.id,
+        target_id,
+        "officer",
+        username,
+        display_name,
+    )
+    name = f"@{username}" if username else (display_name or str(target_id))
+    await message.answer(f"🛡️ {name} назначен офицером.\nЕдинственная специальная команда: <code>/newbie</code>.", parse_mode="HTML")
+
+
+@dp.message(Command('unofficer'))
+async def command_unofficer(message: Message):
+    if not await _is_admin_user(message):
+        return
+
+    target = await _resolve_role_target(message)
+    if not target:
+        await message.answer(
+            "Использование: <code>/unofficer @username</code>\n"
+            "или ответь командой <code>/unofficer</code> на сообщение участника.",
+            parse_mode="HTML",
+        )
+        return
+
+    target_id, username, display_name = target
+    try:
+        member = await message.bot.get_chat_member(message.chat.id, target_id)
+        target_user = member.user
+        username = target_user.username
+        display_name = target_user.full_name or target_user.first_name
+    except Exception:
+        pass
+
+    role_manager.set_role(
+        message.chat.id,
+        target_id,
+        "member",
+        username,
+        display_name,
+    )
+    name = f"@{username}" if username else (display_name or str(target_id))
+    await message.answer(f"👤 {name} больше не офицер.")
+
+
+@dp.message(Command('officers'))
+async def command_officers(message: Message):
+    if not await _is_admin_user(message):
+        return
+
+    rows = role_manager.list_roles(message.chat.id)
+    officers = [
+        f"@{username}" if username else (display_name or str(user_id))
+        for user_id, username, display_name, role in rows
+        if role == "officer"
+    ]
+    await message.answer(
+        "🛡️ <b>Офицеры</b>\n\n" +
+        ("\n".join(f"• {name}" for name in officers) if officers else "• пока нет"),
+        parse_mode="HTML",
+    )
+
+
 @dp.message(Command('roles'))
 async def command_roles(message: Message):
     if not await _is_admin_user(message):
@@ -1101,7 +1211,7 @@ async def on_message(message: Message):
     original_text = (message.text or '').strip()
     if not original_text: return
     if _bot_id is not None and message.from_user and message.from_user.id == _bot_id: return
-    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie','/roles'}: return
+    if original_text.split()[0].split('@')[0].lower() in {'/start','/stop','/status','/consultant','/watch','/watches','/unwatch','/history','/market','/reminders','/cancel','/newbie','/roles','/officer','/unofficer','/officers'}: return
     if not storage.is_chat_enabled(message.chat.id): return
     is_reply_to_alina = bool(message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == _bot_id)
     display_name = message.from_user.full_name if message.from_user else None
