@@ -71,6 +71,32 @@ class RoleManager:
                 ),
             )
 
+    def find_user_by_username(self, chat_id: int, username: str):
+        """Ищет участника по username среди уже известных боту пользователей."""
+        username = username.lstrip("@").strip().lower()
+        if not username:
+            return None
+
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT user_id, username, display_name
+                   FROM bot_roles
+                   WHERE chat_id=? AND LOWER(username)=?
+                   LIMIT 1""",
+                (chat_id, username),
+            ).fetchone()
+            if row:
+                return row
+
+            row = conn.execute(
+                """SELECT user_id, username, display_name
+                   FROM user_memory
+                   WHERE chat_id=? AND LOWER(username)=?
+                   LIMIT 1""",
+                (chat_id, username),
+            ).fetchone()
+        return row
+
     def list_roles(self, chat_id: int):
         with self._conn() as conn:
             return conn.execute(
