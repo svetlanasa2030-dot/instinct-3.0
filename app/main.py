@@ -568,6 +568,7 @@ async def newbie_confirm_callback(callback: CallbackQuery):
             added_by_display_name,
         )
         logging.info("[NEWBIE] storage.add_recruit result=%s", ok)
+        logging.info("[NEWBIE] Локальная база: записей=%s", len(storage.all_recruits()))
         if not ok:
             await callback.answer("Такой игрок уже есть", show_alert=True)
             await _close_newbie_session(callback, None)
@@ -578,14 +579,14 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         _newbie_sessions.pop(user_id, None)
         storage.delete_newbie_draft(chat_id, user_id)
 
-        # Отправляем принятого новичка в Google Таблицу.
-        # Ошибка синхронизации не отменяет принятие в самой Алине.
         logging.info("[NEWBIE] Новичок сохранён локально в SQLite.")
         # Убираем все сообщения текущей анкеты и все напоминания.
         await _close_newbie_session(callback, None)
-    except Exception:
+        await callback.message.answer(
+            f"✅ Новичок {data['game_nickname']} записан в локальную базу."
+        )
+    except Exception as exc:
         logging.exception("[NEWBIE] Failed to finalize newbie acceptance")
-        # Даже если Telegram не дал удалить сообщение, анкета не должна оставаться активной.
         _newbie_sessions.pop(user_id, None)
         storage.delete_newbie_draft(chat_id, user_id)
         storage.delete_newbie_message_ids(chat_id, user_id)
@@ -594,7 +595,7 @@ async def newbie_confirm_callback(callback: CallbackQuery):
             await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
-        raise
+        await callback.message.answer(f"❌ Не удалось записать новичка в локальную базу: {exc}")
 
 
 def _parse_analytics_command(text: str):
