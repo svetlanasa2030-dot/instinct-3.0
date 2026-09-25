@@ -27,7 +27,19 @@ try:
 except ImportError:
     run_news_monitor_in_thread = None
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+# Логирование одновременно в консоль и в отдельный файл logs/bot.log.
+LOG_DIR = Path.cwd() / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "bot.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+    ],
+)
 settings = load_settings()
 storage = Storage(settings.db_path)
 init_game_features(settings.db_path)
@@ -66,6 +78,15 @@ async def _send_recruit_to_google_sheets(
     added_by_display_name: str,
 ):
     """Отправляет принятого новичка в Google Sheets через Apps Script."""
+    logging.info(
+        "[GOOGLE SHEETS] Начало отправки: nickname=%s, level=%s, class=%s, TS=%s, TG=%s, added_by=%s",
+        data.get("game_nickname", ""),
+        data.get("level", ""),
+        data.get("class_name", ""),
+        data.get("teamspeak", ""),
+        data.get("telegram", ""),
+        added_by_username or added_by_display_name,
+    )
     payload = {
         "secret": GOOGLE_SHEETS_SECRET,
         "date": datetime.now().astimezone().isoformat(),
@@ -98,6 +119,7 @@ async def _send_recruit_to_google_sheets(
 
     def _post():
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        logging.info("[GOOGLE SHEETS] POST -> %s", GOOGLE_SHEETS_WEBHOOK)
         request = urllib.request.Request(
             GOOGLE_SHEETS_WEBHOOK,
             data=body,
@@ -144,6 +166,7 @@ async def _send_recruit_to_google_sheets(
             return False
 
         logging.info("[GOOGLE SHEETS] Recruit synced successfully: %s", result)
+        logging.info("[GOOGLE SHEETS] Файл логов: %s", LOG_FILE.resolve())
         return True
     except Exception:
         logging.exception("[GOOGLE SHEETS] Failed to sync recruit")
@@ -618,12 +641,14 @@ async def newbie_form_message(message: Message):
 @dp.callback_query(F.data == "newbie_confirm")
 async def newbie_confirm_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
+    logging.info("[NEWBIE] Нажата кнопка ПРИНЯТЬ: user_id=%s", user_id)
     if callback.message is None:
         await callback.answer("Не удалось найти анкету.", show_alert=True)
         return
     chat_id = callback.message.chat.id
     session = _newbie_sessions.get(user_id)
     data = session["data"] if session and session["chat_id"] == chat_id else storage.get_newbie_draft(chat_id, user_id)
+    logging.info("[NEWBIE] Данные анкеты перед принятием: %s", data)
     if not data or not data.get("game_nickname"):
         await callback.answer("Анкета устарела. Запусти /newbie ещё раз.", show_alert=True)
         return
@@ -643,6 +668,7 @@ async def newbie_confirm_callback(callback: CallbackQuery):
             added_by_username or None,
             added_by_display_name,
         )
+        logging.info("[NEWBIE] storage.add_recruit result=%s", ok)
         if not ok:
             await callback.answer("Такой игрок уже есть", show_alert=True)
             await _close_newbie_session(callback, None)
@@ -655,16 +681,18 @@ async def newbie_confirm_callback(callback: CallbackQuery):
 
         # Отправляем принятого новичка в Google Таблицу.
         # Ошибка синхронизации не отменяет принятие в самой Алине.
-        await _send_recruit_to_google_sheets(
+        logging.info("[NEWBIE] Локально принят. Запускаю синхронизацию с Google Sheets.")
+        sheets_ok = await _send_recruit_to_google_sheets(
             data,
             added_by_username,
             added_by_display_name,
         )
+        logging.info("[NEWBIE] Google Sheets sync result=%s", sheets_ok)
 
         # Убираем все сообщения текущей анкеты и все напоминания.
         await _close_newbie_session(callback, None)
     except Exception:
-        logging.exception("Failed to finalize newbie acceptance")
+        logging.exception("[NEWBIE] Failed to finalize newbie acceptance")
         # Даже если Telegram не дал удалить сообщение, анкета не должна оставаться активной.
         _newbie_sessions.pop(user_id, None)
         storage.delete_newbie_draft(chat_id, user_id)
