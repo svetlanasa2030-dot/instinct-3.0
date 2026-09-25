@@ -245,6 +245,10 @@ class App(tk.Tk):
         y_scroll.grid(row=0, column=1, sticky="ns")
         x_scroll.grid(row=1, column=0, sticky="ew")
 
+        # При каждом запуске сразу открываем вкладку «Новички».
+        # Данные в ней уже загружаются из локальной базы.
+        nb.select(recruits)
+
         self.write("[Система] Приложение запущено")
         self.write("[Система] Все настройки загружены")
         self.write("[Статус] Бот остановлен")
