@@ -20,7 +20,7 @@ from app.game_features import init_game_features, add_watch, list_watches, remov
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever, _latest_video
 from app.youtube_browser import like_video, get_video_rating
-from app.google_newbie import send_newbie_to_google, test_google_newbie
+from app.google_newbie import send_newbie_to_google, test_google_newbie, get_google_config_status
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -553,16 +553,11 @@ async def callback_google_sheets_test(callback: CallbackQuery):
     await callback.answer("Проверяю Google Sheets…")
     try:
         ok, details = await asyncio.to_thread(test_google_newbie)
-        # Диагностика показывает, какой URL реально видит запущенный EXE.
-        # Сам секрет никогда не показываем.
-        from pathlib import Path
-        from dotenv import dotenv_values
-        env_path = Path(__import__("os").getenv("APPDATA", str(Path.home()))) / "InstinctBot" / ".env"
-        env_values = dotenv_values(env_path)
-        webhook = (env_values.get("GOOGLE_NEWBIE_WEBHOOK") or "").strip()
-        secret = (env_values.get("GOOGLE_NEWBIE_SECRET") or "").strip()
+        # Диагностика использует тот же runtime-конфиг, который реально
+        # использует google_newbie.py. Сам секрет никогда не показываем.
+        webhook, secret_set = await asyncio.to_thread(get_google_config_status)
         url_info = webhook if webhook else "НЕ НАЙДЕН"
-        secret_info = "задан" if secret else "НЕ ЗАДАН"
+        secret_info = "задан" if secret_set else "НЕ ЗАДАН"
         if ok:
             text = f"☁️ <b>Google Sheets работает</b>\n\n{details}.\n\n<b>Диагностика EXE:</b>\nURL: <code>{url_info}</code>\nSECRET: {secret_info}\n\nПроверь строку <b>TEST</b> в таблице."
         else:
