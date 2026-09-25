@@ -10,7 +10,7 @@ function doGet() {
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
-    if (String(data.key || '') !== ACCESS_KEY) return json_({ok:false,error:'Неверный ключ'});
+    if (String(data.secret || '') !== ACCESS_KEY) return json_({ok:false,error:'Неверный ключ'});
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     let sheet = ss.getSheetByName(SHEET_NAME);
     if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
