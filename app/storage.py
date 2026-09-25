@@ -97,10 +97,6 @@ class Storage:
                     "UPDATE recruits SET class_name = player_class "
                     "WHERE COALESCE(class_name, '') = '' AND player_class IS NOT NULL"
                 )
-            }.items():
-                if column not in recruit_columns:
-                    conn.execute(f"ALTER TABLE recruits ADD COLUMN {column} {definition}")
-
             conn.execute("""CREATE TABLE IF NOT EXISTS newbie_drafts (
                 chat_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
