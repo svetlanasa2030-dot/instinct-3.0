@@ -276,15 +276,32 @@ class Storage:
                     (*values, exists[0]),
                 )
             else:
-                conn.execute(
-                    """INSERT INTO recruits(
-                        chat_id, game_nickname, level, class_name, teamspeak, telegram,
-                        added_by_user_id, added_by_username, added_by_display_name, created_at
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        chat_id, game_nickname, *values,
-                    ),
-                )
+                recruit_columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(recruits)").fetchall()
+                }
+                if "player_class" in recruit_columns:
+                    # Старые версии БД требуют player_class как NOT NULL.
+                    conn.execute(
+                        """INSERT INTO recruits(
+                            chat_id, game_nickname, level, class_name, player_class,
+                            teamspeak, telegram, added_by_user_id, added_by_username,
+                            added_by_display_name, created_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            chat_id, game_nickname, values[0], values[1], values[1],
+                            values[2], values[3], values[4], values[5], values[6], values[7],
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """INSERT INTO recruits(
+                            chat_id, game_nickname, level, class_name, teamspeak, telegram,
+                            added_by_user_id, added_by_username, added_by_display_name, created_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            chat_id, game_nickname, *values,
+                        ),
+                    )
 
             count = conn.execute(
                 "SELECT COUNT(*) FROM recruits WHERE chat_id=?",
