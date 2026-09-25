@@ -20,6 +20,7 @@ from app.game_features import init_game_features, add_watch, list_watches, remov
 from app.forum_search import search_forum
 from app.youtube_monitor import monitor_forever, _latest_video
 from app.youtube_browser import like_video, get_video_rating
+from app.google_newbie import send_newbie_to_google
 try:
     from app.news_monitor import run_news_monitor_in_thread
 except ImportError:
@@ -580,10 +581,37 @@ async def newbie_confirm_callback(callback: CallbackQuery):
         storage.delete_newbie_draft(chat_id, user_id)
 
         logging.info("[NEWBIE] Новичок сохранён локально в SQLite.")
+
+        # Google Sheets — дополнительное хранилище.
+        # Ошибка Google не отменяет локальное сохранение.
+        google_date = datetime.now().strftime("%d.%m.%Y %H:%M")
+        google_ok = await asyncio.to_thread(
+            send_newbie_to_google,
+            date=google_date,
+            game_nickname=data["game_nickname"],
+            level=data["level"],
+            class_name=data["class_name"],
+            teamspeak=data["teamspeak"],
+            telegram=data["telegram"],
+            added_by=f"@{added_by_username}" if added_by_username else added_by_display_name,
+        )
+        if google_ok:
+            logging.info("[NEWBIE] Google Sheets: запись добавлена.")
+        else:
+            logging.warning(
+                "[NEWBIE] Google Sheets: запись не отправлена. "
+                "SQLite продолжает работать как основная БД."
+            )
+
         # Убираем все сообщения текущей анкеты и все напоминания.
         await _close_newbie_session(callback, None)
+        if google_ok:
+            status = "SQLite + Google Sheets"
+        else:
+            status = "SQLite (Google временно недоступен)"
         await callback.message.answer(
-            f"✅ Новичок {data['game_nickname']} записан в базу."
+            f"✅ Новичок {data['game_nickname']} записан в базу.\n"
+            f"☁️ Хранилище: {status}"
         )
     except Exception as exc:
         logging.exception("[NEWBIE] Failed to finalize newbie acceptance")
