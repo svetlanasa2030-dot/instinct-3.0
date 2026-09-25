@@ -244,28 +244,53 @@ class Storage:
     def add_recruit(self, chat_id: int, game_nickname: str, level: str, class_name: str,
                     teamspeak: str, telegram: str, added_by_user_id: int | None,
                     added_by_username: str | None, added_by_display_name: str | None):
+        """Сохраняет принятого новичка локально. Повторное принятие обновляет запись."""
         game_nickname = game_nickname.strip()
         if not game_nickname:
             return False
+
         with self._conn() as conn:
             exists = conn.execute(
-                "SELECT 1 FROM recruits WHERE chat_id=? AND lower(game_nickname)=lower(?) LIMIT 1",
+                "SELECT id FROM recruits WHERE chat_id=? AND lower(game_nickname)=lower(?) LIMIT 1",
                 (chat_id, game_nickname),
             ).fetchone()
-            if exists:
-                return False
-            conn.execute(
-                """INSERT INTO recruits(
-                    chat_id, game_nickname, level, class_name, teamspeak, telegram,
-                    added_by_user_id, added_by_username, added_by_display_name, created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    chat_id, game_nickname, level.strip(), class_name.strip(),
-                    teamspeak.strip(), telegram.strip(), added_by_user_id,
-                    added_by_username.lower().lstrip("@").strip() if added_by_username else None,
-                    added_by_display_name, datetime.now(timezone.utc).isoformat(),
-                ),
+
+            values = (
+                level.strip(),
+                class_name.strip(),
+                teamspeak.strip(),
+                telegram.strip(),
+                added_by_user_id,
+                added_by_username.lower().lstrip("@").strip() if added_by_username else None,
+                added_by_display_name,
+                datetime.now(timezone.utc).isoformat(),
             )
+
+            if exists:
+                conn.execute(
+                    """UPDATE recruits SET
+                       level=?, class_name=?, teamspeak=?, telegram=?,
+                       added_by_user_id=?, added_by_username=?,
+                       added_by_display_name=?, created_at=?
+                       WHERE id=?""",
+                    (*values, exists[0]),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO recruits(
+                        chat_id, game_nickname, level, class_name, teamspeak, telegram,
+                        added_by_user_id, added_by_username, added_by_display_name, created_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        chat_id, game_nickname, *values,
+                    ),
+                )
+
+            count = conn.execute(
+                "SELECT COUNT(*) FROM recruits WHERE chat_id=?",
+                (chat_id,),
+            ).fetchone()[0]
+
         return True
 
     def all_recruits(self):
