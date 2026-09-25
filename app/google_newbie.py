@@ -98,3 +98,50 @@ def send_newbie_to_google(
             exc,
         )
         return False
+
+
+def test_google_newbie() -> tuple[bool, str]:
+    """Send a harmless TEST row to Google Sheets and return a user-safe diagnosis."""
+    if not GOOGLE_NEWBIE_SECRET:
+        return False, "Не задан GOOGLE_NEWBIE_SECRET в .env"
+    if not GOOGLE_NEWBIE_WEBHOOK:
+        return False, "Не задан GOOGLE_NEWBIE_WEBHOOK в .env"
+
+    payload = json.dumps(
+        {
+            "secret": GOOGLE_NEWBIE_SECRET,
+            "test": True,
+            "date": "TEST",
+            "game_nickname": "TEST",
+            "level": "TEST",
+            "class_name": "TEST",
+            "teamspeak": "TEST",
+            "telegram": "TEST",
+            "added_by": "TEST",
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        GOOGLE_NEWBIE_WEBHOOK,
+        data=payload,
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "InstinctBot/3.0 GoogleTest",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            status = response.status
+        if not (200 <= status < 300):
+            return False, f"HTTP {status}: {body[:300]}"
+        try:
+            result = json.loads(body)
+        except json.JSONDecodeError:
+            return False, f"Google вернул не JSON: {body[:300]}"
+        if not result.get("ok"):
+            return False, f"Apps Script отклонил запрос: {str(result)[:300]}"
+        return True, "Тестовая запись TEST успешно отправлена в Google Sheets"
+    except Exception as exc:
+        return False, f"Ошибка подключения: {exc}"
